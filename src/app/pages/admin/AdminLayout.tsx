@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, Calendar, Plus, LogOut, Zap, BarChart2, Users, Settings, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Calendar, Plus, LogOut, Zap, ChevronRight } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 
 const NAV_ITEMS = [
@@ -49,10 +49,10 @@ export default function AdminLayout() {
           <div className="mt-3 flex items-center gap-2">
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
               style={{ background: 'linear-gradient(135deg, #FF6B35, #FF3A8C)' }}>
-              {user.name.charAt(0).toUpperCase()}
+              {user.full_name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <div className="text-xs font-semibold" style={{ color: '#fff' }}>{user.name}</div>
+              <div className="text-xs font-semibold" style={{ color: '#fff' }}>{user.full_name}</div>
               <div className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Administrator</div>
             </div>
           </div>

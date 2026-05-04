@@ -1,12 +1,8 @@
-import { useState, useMemo } from 'react';
 import { Link } from 'react-router';
-import { Search, Zap, TrendingUp, Calendar, ChevronRight, Music, MapPin, Flame } from 'lucide-react';
+import { Zap, TrendingUp, Calendar, ChevronRight, Music, MapPin, Flame } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { EventCard, FlashSaleTimer } from '../components/EventCard';
-import { formatDate, formatPrice } from '../data/mockData';
-
-const CITIES = ['Tất cả', 'Hà Nội', 'TP. Hồ Chí Minh', 'Đà Nẵng'];
-const GENRES = ['Tất cả', 'Pop', 'Rock', 'Jazz', 'Rap', 'Ballad', 'Electronic'];
+import { formatDate } from '../data/mockData';
 
 export default function HomePage() {
   const { events } = useApp();

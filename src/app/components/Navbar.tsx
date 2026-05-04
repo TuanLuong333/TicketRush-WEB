@@ -79,14 +79,19 @@ export function Navbar() {
                   style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '0.9rem' }}>
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
                     style={{ background: 'linear-gradient(135deg, #FF6B35, #FF3A8C)' }}>
-                    {user.name.charAt(0).toUpperCase()}
+                    {user.full_name.charAt(0).toUpperCase()}
                   </div>
-                  <span>{user.name}</span>
+                  <span>{user.full_name}</span>
                   <ChevronDown size={14} />
                 </button>
                 {dropdownOpen && (
                   <div className="absolute right-0 mt-2 w-48 rounded-xl overflow-hidden shadow-xl z-50"
                     style={{ background: '#12122A', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <Link to="/profile" onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors"
+                      style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem' }}>
+                      <User size={14} /> Hồ sơ cá nhân
+                    </Link>
                     <Link to="/tickets" onClick={() => setDropdownOpen(false)}
                       className="flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors"
                       style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem' }}>

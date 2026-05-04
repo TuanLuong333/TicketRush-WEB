@@ -128,9 +128,15 @@ export function FlashSaleTimer({ endsAt }: { endsAt: string }) {
     <div className="flex items-center gap-1">
       {[h, m, s].map((v, i) => (
         <span key={i} className="flex items-center">
-          {i > 0 && <span style={{ color: '#FF6B35', margin: '0 2px' }}>:</span>}
+          {i > 0 && <span style={{ color: 'rgba(255,255,255,0.72)', margin: '0 2px' }}>:</span>}
           <span className="inline-block px-2 py-1 rounded-md font-mono font-bold text-sm"
-            style={{ background: 'rgba(255,107,53,0.2)', color: '#FF6B35', minWidth: 32, textAlign: 'center' }}>
+            style={{
+              background: 'rgba(8,8,26,0.28)',
+              color: '#fff',
+              minWidth: 32,
+              textAlign: 'center',
+              textShadow: '0 1px 2px rgba(0,0,0,0.25)',
+            }}>
             {String(v).padStart(2, '0')}
           </span>
         </span>

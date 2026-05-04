@@ -4,6 +4,7 @@ import { Footer } from './components/Footer';
 import HomePage from './pages/HomePage';
 import EventsPage from './pages/EventsPage';
 import EventDetailPage from './pages/EventDetailPage';
+import ProfilePage from './pages/ProfilePage';
 import SeatSelectionPage from './pages/SeatSelectionPage';
 import QueuePage from './pages/QueuePage';
 import CheckoutPage from './pages/CheckoutPage';
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
       { path: 'events/:id/seats', Component: SeatSelectionPage },
       { path: 'queue/:id', Component: QueuePage },
       { path: 'checkout', Component: CheckoutPage },
+      { path: 'profile', Component: ProfilePage },
       { path: 'tickets', Component: MyTicketsPage },
       { path: 'login', Component: LoginPage },
       { path: 'register', Component: RegisterPage },
