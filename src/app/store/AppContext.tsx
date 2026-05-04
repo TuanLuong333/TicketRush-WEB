@@ -3,7 +3,7 @@ import { EVENTS, DEMO_ORDER, generateSeats } from '../data/mockData';
 import { SERVICE_FEE_RATE } from '../data/types';
 import type {
   User, Event, EventSeat, Order, OrderItem, Ticket,
-  QueueEntry, SeatStatus, PaymentMethod,
+  QueueEntry, SeatStatus, SeatViewStatus, PaymentMethod,
 } from '../data/types';
 
 export type { User };
@@ -13,11 +13,13 @@ interface AppContextValue {
   user: User | null;
   login: (email: string, password: string) => boolean;
   logout: () => void;
-  register: (name: string, email: string, password: string) => boolean;
+  register: (data: Partial<User> & { password?: string }) => boolean;
+  updateUser: (data: Partial<User>) => void;
 
   // Events
   events: Event[];
   getEvent: (id: string) => Event | undefined;
+  addEvent: (event: Event) => void;
 
   // Seats (mirrors event_seats table)
   seatMap: Record<string, EventSeat[]>;
@@ -62,7 +64,7 @@ function generateQRCode(orderId: string, ticketId: string): string {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [events] = useState<Event[]>(EVENTS);
+  const [events, setEvents] = useState<Event[]>(EVENTS);
   const [seatMap, setSeatMap] = useState<Record<string, EventSeat[]>>({});
   const [userSeatIds, setUserSeatIds] = useState<Record<string, Set<string>>>({});
   const [holdExpiry, setHoldExpiry] = useState<Date | null>(null);
@@ -121,7 +123,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser({
       id: isAdmin ? 'admin-001' : 'user-' + Date.now(),
       email,
-      name: isAdmin ? 'Admin' : email.split('@')[0],
+      full_name: isAdmin ? 'Admin' : email.split('@')[0],
       role: isAdmin ? 'admin' : 'customer',
       created_at: now,
     });
@@ -130,16 +132,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => setUser(null), []);
 
-  const register = useCallback((name: string, email: string, _password: string): boolean => {
-    if (!name || !email) return false;
+  const register = useCallback((data: Partial<User> & { password?: string }): boolean => {
+    if (!data.full_name || !data.email) return false;
     const now = new Date().toISOString();
-    setUser({ id: 'user-' + Date.now(), email, name, role: 'customer', created_at: now });
+    setUser({ 
+      id: 'user-' + Date.now(), 
+      email: data.email, 
+      full_name: data.full_name, 
+      phone: data.phone,
+      gender: data.gender,
+      birth_date: data.birth_date,
+      role: 'customer', 
+      created_at: now 
+    });
     return true;
+  }, []);
+
+  const updateUser = useCallback((data: Partial<User>) => {
+    setUser(prev => prev ? { ...prev, ...data } : null);
   }, []);
 
   // ─── Events ────────────────────────────────────────────────────────────────
 
   const getEvent = useCallback((id: string) => events.find(e => e.id === id), [events]);
+
+  const addEvent = useCallback((event: Event) => {
+    setEvents(prev => [event, ...prev]);
+    setSeatMap(prev => ({
+      ...prev,
+      [event.id]: generateSeats(event.id, event.sections),
+    }));
+  }, []);
 
   // ─── Seats ─────────────────────────────────────────────────────────────────
 
@@ -148,7 +171,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const selectSeat = useCallback((eventId: string, seatId: string) => {
     setSeatMap(prev => {
       const seats = prev[eventId]?.map(s =>
-        s.id === seatId && s.status === 'available' ? { ...s, status: 'selected' as SeatStatus } : s
+        s.id === seatId && s.status === 'available' ? { ...s, status: 'selected' as SeatViewStatus } : s
       ) ?? [];
       return { ...prev, [eventId]: seats };
     });
@@ -206,12 +229,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── Orders (confirmOrder replaces confirmBooking) ─────────────────────────
 
   const confirmOrder = useCallback((eventId: string, paymentMethod: PaymentMethod = 'VNPAY'): Order | null => {
-    const event = EVENTS.find(e => e.id === eventId);
+    const event = events.find(e => e.id === eventId);
     if (!event || !user) return null;
+    if (!holdExpiry || holdExpiry.getTime() <= Date.now()) return null;
 
     const ids = userSeatIds[eventId] ?? new Set();
     const userSeats = (seatMap[eventId] ?? []).filter(s => ids.has(s.id));
     if (userSeats.length === 0) return null;
+    if (userSeats.some(seat => seat.status !== 'locked')) return null;
 
     const orderId = 'ORD-' + Date.now().toString().slice(-6);
     const now = new Date().toISOString();
@@ -276,7 +301,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOrders(prev => [...prev, order]);
     setHoldExpiry(null);
     return order;
-  }, [seatMap, userSeatIds, user]);
+  }, [events, holdExpiry, seatMap, userSeatIds, user]);
 
   // ─── Queue (mirrors queue_entries table) ───────────────────────────────────
 
@@ -312,8 +337,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      user, login, logout, register,
-      events, getEvent,
+      user, login, logout, register, updateUser,
+      events, getEvent, addEvent,
       seatMap, getSeats, selectSeat, deselectSeat, getUserSeats, clearUserSeats,
       holdExpiry, setHoldExpiry, holdSeats,
       orders, confirmOrder,

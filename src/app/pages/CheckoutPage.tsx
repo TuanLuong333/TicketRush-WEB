@@ -17,11 +17,12 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string; icon: string }[] =
 export default function CheckoutPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { getEvent, getUserSeats, confirmOrder, holdExpiry, user } = useApp();
+  const { getEvent, getUserSeats, confirmOrder, holdExpiry, clearUserSeats, setHoldExpiry, user } = useApp();
 
   const eventId = location.state?.eventId as string | undefined;
   const event = getEvent(eventId ?? '');
   const userSeats = getUserSeats(eventId ?? '');
+  const seatsReadyForCheckout = Boolean(holdExpiry) && userSeats.length > 0 && userSeats.every(seat => seat.status === 'locked');
 
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<ReturnType<typeof confirmOrder> | null>(null);
@@ -37,12 +38,14 @@ export default function CheckoutPage() {
       setSecondsLeft(diff);
       if (diff === 0 && !done) {
         clearInterval(interval);
+        clearUserSeats(eventId ?? '');
+        setHoldExpiry(null);
         toast.error('Hết thời gian giữ chỗ!');
         navigate(`/events/${eventId}`);
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [holdExpiry, done]);
+  }, [holdExpiry, done, eventId, clearUserSeats, setHoldExpiry, navigate]);
 
   const itemTotal = userSeats.reduce((s, seat) => s + seat.price, 0);
   const serviceFee = Math.round(itemTotal * SERVICE_FEE_RATE);
@@ -68,6 +71,8 @@ export default function CheckoutPage() {
         colors: ['#FF6B35', '#FF3A8C', '#ffffff', '#F59E0B'],
       });
       toast.success('Đặt vé thành công!');
+    } else {
+      toast.error('Ghế chưa được giữ hoặc đã hết thời gian giữ chỗ');
     }
   };
 
@@ -139,13 +144,15 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!event || userSeats.length === 0) {
+  if (!event || !seatsReadyForCheckout) {
     return (
       <div style={{ background: '#08081A', minHeight: '100vh', color: '#fff' }}
         className="flex items-center justify-center">
         <div className="text-center">
           <Ticket size={48} className="mx-auto mb-4" style={{ color: 'rgba(255,255,255,0.15)' }} />
-          <p style={{ color: 'rgba(255,255,255,0.4)' }}>Không có thông tin đặt vé</p>
+          <p style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Vui lòng giữ chỗ trước khi thanh toán
+          </p>
           <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 rounded-lg text-sm"
             style={{ background: 'rgba(255,107,53,0.2)', color: '#FF6B35' }}>
             Về trang chủ
@@ -245,7 +252,7 @@ export default function CheckoutPage() {
                 </h3>
                 <div className="space-y-2">
                   {[
-                    { label: 'Họ tên', value: user.name },
+                    { label: 'Họ tên', value: user.full_name },
                     { label: 'Email',  value: user.email },
                     ...(user.phone ? [{ label: 'Điện thoại', value: user.phone }] : []),
                   ].map(({ label, value }) => (

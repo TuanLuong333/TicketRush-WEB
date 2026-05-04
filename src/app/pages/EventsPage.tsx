@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
-import { Search, Filter, MapPin, Calendar, Music, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { Search, MapPin, Calendar, Music, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { EventCard } from '../components/EventCard';
 

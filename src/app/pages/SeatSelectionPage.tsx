@@ -22,7 +22,9 @@ export default function SeatSelectionPage() {
   const seats = getSeats(eventId ?? '');
   const userSeats = getUserSeats(eventId ?? '');
   const selectedCount = userSeats.filter(s => s.status === 'selected').length;
+  const lockedCount = userSeats.filter(s => s.status === 'locked').length;
   const totalUserSeats = userSeats.length;
+  const canCheckout = Boolean(holdExpiry) && totalUserSeats > 0 && lockedCount === totalUserSeats;
 
   // Hold countdown
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -47,6 +49,10 @@ export default function SeatSelectionPage() {
     if (seat.status === 'selected') {
       deselectSeat(eventId, seat.id);
     } else if (seat.status === 'available') {
+      if (holdExpiry) {
+        toast.error('Ghế đã được giữ. Hãy thanh toán hoặc quay lại để chọn lại.');
+        return;
+      }
       if (selectedCount >= MAX_SELECT) {
         toast.error(`Bạn chỉ có thể chọn tối đa ${MAX_SELECT} ghế`);
         return;
@@ -64,6 +70,10 @@ export default function SeatSelectionPage() {
 
   const handleCheckout = () => {
     if (!eventId || totalUserSeats === 0) return;
+    if (!canCheckout) {
+      toast.error('Vui lòng giữ chỗ trước khi thanh toán');
+      return;
+    }
     navigate('/checkout', { state: { eventId } });
   };
 
@@ -217,11 +227,13 @@ export default function SeatSelectionPage() {
                       </div>
                     ) : null}
 
-                    <button onClick={handleCheckout}
+                    <button onClick={handleCheckout} disabled={!canCheckout}
                       className="w-full py-3 rounded-xl font-bold text-white transition-all hover:scale-105"
                       style={{
-                        background: 'linear-gradient(135deg, #FF6B35, #FF3A8C)',
-                        boxShadow: '0 6px 20px rgba(255,107,53,0.3)',
+                        background: canCheckout ? 'linear-gradient(135deg, #FF6B35, #FF3A8C)' : 'rgba(255,255,255,0.08)',
+                        boxShadow: canCheckout ? '0 6px 20px rgba(255,107,53,0.3)' : 'none',
+                        color: canCheckout ? '#fff' : 'rgba(255,255,255,0.35)',
+                        cursor: canCheckout ? 'pointer' : 'not-allowed',
                       }}>
                       Tiến hành thanh toán
                     </button>

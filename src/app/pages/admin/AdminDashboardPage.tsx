@@ -3,7 +3,7 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { TrendingUp, Ticket, DollarSign, Users, RefreshCw, Activity, ArrowUpRight } from 'lucide-react';
+import { Ticket, DollarSign, Users, RefreshCw, Activity, ArrowUpRight } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { REVENUE_SUMMARY, AUDIENCE_DEMOGRAPHICS, RECENT_ORDERS, formatPrice } from '../../data/mockData';
 
@@ -14,7 +14,7 @@ const GENDER_DATA = [
 ];
 
 export default function AdminDashboardPage() {
-  const { events, orders } = useApp();
+  const { events } = useApp();
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {

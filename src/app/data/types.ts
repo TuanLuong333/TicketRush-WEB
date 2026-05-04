@@ -13,8 +13,11 @@ export type EventStatus = 'draft' | 'on_sale' | 'sold_out' | 'cancelled' | 'ende
 /** price tier for a venue section / seat, mirrors event_seats.price_tier */
 export type PriceTier = 'VIP' | 'STANDARD' | 'ECONOMY' | 'GENERAL';
 
-/** seat availability, mirrors event_seats.status */
-export type SeatStatus = 'available' | 'locked' | 'sold' | 'selected';
+/** persisted seat availability, mirrors event_seats.status */
+export type SeatStatus = 'available' | 'locked' | 'sold';
+
+/** client-only selection state; never persist `selected` to the database */
+export type SeatViewStatus = SeatStatus | 'selected';
 
 /** order status, mirrors orders.status */
 export type OrderStatus = 'pending' | 'confirmed' | 'cancelled' | 'refunded';
@@ -36,10 +39,10 @@ export type QueueStatus = 'inactive' | 'active' | 'paused' | 'ended';
 export interface User {
   id: string;
   email: string;
-  name: string;
+  full_name: string;
   phone?: string;
   gender?: UserGender;
-  dob?: string;           // DATE as ISO string
+  birth_date?: string;     // DATE as ISO string
   role: UserRole;
   avatar_url?: string;
   created_at: string;
@@ -56,7 +59,7 @@ export interface EventSeat {
   row_label: string;      // e.g. "A", "B", "C"
   price_tier: PriceTier;
   price: number;          // VND
-  status: SeatStatus;
+  status: SeatViewStatus;
 }
 
 /**
