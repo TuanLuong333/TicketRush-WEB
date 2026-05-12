@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EVENTS,
   ORDER_ITEMS,
@@ -212,6 +212,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [holdExpiry, setHoldExpiry] = useState<Date | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [currentQueueEntry, setCurrentQueueEntry] = useState<QueueEntry | null>(null);
+  const holdExpiryRef = useRef<Date | null>(null);
+  const activeOrderIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    holdExpiryRef.current = holdExpiry;
+    activeOrderIdRef.current = activeOrderId;
+  }, [activeOrderId, holdExpiry]);
 
   useEffect(() => {
     const releaseExpiredLocks = () => {
@@ -262,11 +269,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSelectedSeatIds(prev => {
       const current = prev[eventId];
       if (!current) return prev;
-      const keepableSeatIds = new Set(normalizedSeats.filter(seat => seat.status === 'available' || (seat.status === 'locked' && activeOrderId && holdExpiry && holdExpiry.getTime() > Date.now())).map(seat => seat.id));
+      const currentHoldExpiry = holdExpiryRef.current;
+      const currentActiveOrderId = activeOrderIdRef.current;
+      const keepableSeatIds = new Set(normalizedSeats.filter(seat => (
+        seat.status === 'available' ||
+        (seat.status === 'locked' && currentActiveOrderId && currentHoldExpiry && currentHoldExpiry.getTime() > Date.now())
+      )).map(seat => seat.id));
       const next = new Set(Array.from(current).filter(seatId => keepableSeatIds.has(seatId)));
       return next.size === current.size ? prev : { ...prev, [eventId]: next };
     });
-  }, [activeOrderId, holdExpiry]);
+  }, []);
 
   const refreshSeatMap = useCallback(async (eventIdInput: string | number) => {
     if (!apiReady) return;
