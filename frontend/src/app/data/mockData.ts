@@ -79,7 +79,7 @@ export const EVENTS: Event[] = [
       'Đêm nhạc sân vận động với nhiều khu ghế, hàng chờ trực tuyến và cơ chế giữ chỗ có thời hạn để bạn đặt vé an toàn hơn.',
     location: 'Sân vận động Mỹ Đình, Hà Nội',
     event_time: '2026-05-20T19:30:00',
-    seat_plan: 'stadium-360|queue',
+    seat_plan: 'stadium-360|queue:50',
     sale_start_time: '2026-05-09T08:00:00',
     sale_end_time: '2026-05-20T18:30:00',
     status: 'on_sale',
@@ -113,7 +113,7 @@ export const EVENTS: Event[] = [
       'Liveshow trong nhà với nhiều mức giá, sơ đồ ghế rõ ràng theo từng khu để bạn dễ chọn vị trí phù hợp.',
     location: 'Nhà hát Lớn Hà Nội, Hà Nội',
     event_time: '2026-06-10T20:00:00',
-    seat_plan: 'theater|queue',
+    seat_plan: 'theater|queue:50',
     sale_start_time: '2026-05-09T09:30:00',
     sale_end_time: '2026-06-10T19:00:00',
     status: 'on_sale',
@@ -185,25 +185,74 @@ export const SEAT_ZONES: SeatZone[] = [
 ];
 
 export const ZONE_LAYOUTS: ZoneLayout[] = [
-  { zone_id: 10101, rows: 3, cols: 10, color: '#EAB308' },
-  { zone_id: 10102, rows: 5, cols: 12, color: '#2563EB' },
-  { zone_id: 10103, rows: 5, cols: 12, color: '#7C3AED' },
-  { zone_id: 10104, rows: 6, cols: 15, color: '#64748B' },
-  { zone_id: 10201, rows: 4, cols: 10, color: '#EF4444' },
-  { zone_id: 10202, rows: 6, cols: 12, color: '#F97316' },
-  { zone_id: 10203, rows: 6, cols: 12, color: '#0EA5E9' },
-  { zone_id: 10204, rows: 6, cols: 16, color: '#64748B' },
-  { zone_id: 10301, rows: 3, cols: 8, color: '#D946EF' },
-  { zone_id: 10302, rows: 7, cols: 8, color: '#14B8A6' },
-  { zone_id: 10303, rows: 5, cols: 12, color: '#6366F1' },
-  { zone_id: 10401, rows: 3, cols: 8, color: '#F59E0B' },
-  { zone_id: 10402, rows: 4, cols: 12, color: '#22C55E' },
-  { zone_id: 10403, rows: 5, cols: 12, color: '#0F766E' },
-  { zone_id: 10501, rows: 4, cols: 7, color: '#FACC15' },
-  { zone_id: 10502, rows: 7, cols: 8, color: '#FB7185' },
-  { zone_id: 10503, rows: 6, cols: 12, color: '#38BDF8' },
-  { zone_id: 10504, rows: 5, cols: 16, color: '#94A3B8' },
+  { zone_id: 10101, rows: 3, cols: 10, color: '#EAB308', x: 35, y: 18, width: 30, height: 20 },
+  { zone_id: 10102, rows: 5, cols: 12, color: '#2563EB', x: 8, y: 43, width: 32, height: 28 },
+  { zone_id: 10103, rows: 5, cols: 12, color: '#7C3AED', x: 60, y: 43, width: 32, height: 28 },
+  { zone_id: 10104, rows: 6, cols: 15, color: '#64748B', x: 20, y: 75, width: 60, height: 18 },
+  { zone_id: 10201, rows: 4, cols: 10, color: '#EF4444', x: 31, y: 18, width: 38, height: 22 },
+  { zone_id: 10202, rows: 6, cols: 12, color: '#F97316', x: 8, y: 45, width: 35, height: 30 },
+  { zone_id: 10203, rows: 6, cols: 12, color: '#0EA5E9', x: 57, y: 45, width: 35, height: 30 },
+  { zone_id: 10204, rows: 6, cols: 16, color: '#64748B', x: 18, y: 78, width: 64, height: 17 },
+  { zone_id: 10301, rows: 3, cols: 8, color: '#D946EF', x: 8, y: 25, width: 24, height: 26 },
+  { zone_id: 10302, rows: 7, cols: 8, color: '#14B8A6', x: 35, y: 26, width: 30, height: 45 },
+  { zone_id: 10303, rows: 5, cols: 12, color: '#6366F1', x: 68, y: 25, width: 24, height: 38 },
+  { zone_id: 10401, rows: 3, cols: 8, color: '#F59E0B', x: 34, y: 20, width: 32, height: 22 },
+  { zone_id: 10402, rows: 4, cols: 12, color: '#22C55E', x: 22, y: 48, width: 56, height: 26 },
+  { zone_id: 10403, rows: 5, cols: 12, color: '#0F766E', x: 12, y: 78, width: 76, height: 17 },
+  { zone_id: 10501, rows: 4, cols: 7, color: '#FACC15', x: 34, y: 18, width: 32, height: 24 },
+  { zone_id: 10502, rows: 7, cols: 8, color: '#FB7185', x: 8, y: 46, width: 34, height: 32 },
+  { zone_id: 10503, rows: 6, cols: 12, color: '#38BDF8', x: 58, y: 46, width: 34, height: 32 },
+  { zone_id: 10504, rows: 5, cols: 16, color: '#94A3B8', x: 18, y: 80, width: 64, height: 15 },
 ];
+
+interface SeatPlanLayoutPlacement {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+}
+
+const SEAT_PLAN_LAYOUT_PREFIX = 'layout:';
+
+export function readSeatPlanLayouts(seatPlan: string): Record<string, SeatPlanLayoutPlacement> {
+  const layoutPart = seatPlan
+    .split('|')
+    .map(part => part.trim())
+    .find(part => part.startsWith(SEAT_PLAN_LAYOUT_PREFIX));
+
+  if (!layoutPart) return {};
+
+  try {
+    const raw = decodeURIComponent(layoutPart.slice(SEAT_PLAN_LAYOUT_PREFIX.length));
+    const entries = JSON.parse(raw) as Array<SeatPlanLayoutPlacement & { name?: string }>;
+    return entries.reduce<Record<string, SeatPlanLayoutPlacement>>((map, entry) => {
+      const name = entry.name?.trim().toLowerCase();
+      if (!name) return map;
+      map[name] = {
+        x: Number(entry.x),
+        y: Number(entry.y),
+        width: Number(entry.width),
+        height: Number(entry.height),
+        rotation: Number(entry.rotation || 0),
+      };
+      return map;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+export function applySeatPlanLayouts(layouts: ZoneLayout[], zones: SeatZone[], seatPlan: string): ZoneLayout[] {
+  const layoutByName = readSeatPlanLayouts(seatPlan);
+  if (Object.keys(layoutByName).length === 0) return layouts;
+
+  return layouts.map(layout => {
+    const zone = zones.find(item => item.id === layout.zone_id);
+    const placement = zone ? layoutByName[zone.name.trim().toLowerCase()] : undefined;
+    return placement ? { ...layout, ...placement } : layout;
+  });
+}
 
 function makeSeatId(zoneId: number, rowIndex: number, seatNumber: number): number {
   return zoneId * 10000 + rowIndex * 100 + seatNumber;

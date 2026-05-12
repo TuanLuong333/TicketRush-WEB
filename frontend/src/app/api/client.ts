@@ -1,4 +1,4 @@
-import type { EventStatus, PaymentMethod, UserGender } from '../data/types';
+import type { AudienceStatistics, EventStatus, PaymentMethod, UserGender } from '../data/types';
 
 export interface ApiUser {
   id: number;
@@ -22,6 +22,18 @@ export interface ApiEvent {
   saleEndTime?: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'FINISHED';
   bannerUrl?: string | null;
+  seatPlan?: string | null;
+  seatPlanCode?: string | null;
+  seatMapImageUrl?: string | null;
+  queueMode?: 'AUTO' | 'MANUAL' | 'OFF' | string | null;
+  queueThreshold?: number | null;
+  seat_plan?: string | null;
+  seat_plan_code?: string | null;
+  seat_map_image_url?: string | null;
+  queue_mode?: 'AUTO' | 'MANUAL' | 'OFF' | string | null;
+  queue_threshold?: number | null;
+  queueEnabled?: boolean | null;
+  queue_enabled?: boolean | null;
   createdBy?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -57,6 +69,13 @@ export interface ApiZone {
   }>;
 }
 
+export interface ApiSeatMapResponse {
+  event: Pick<ApiEvent, 'id' | 'title' | 'status' | 'location' | 'startTime' | 'seatMapImageUrl' | 'seat_map_image_url'>;
+  zones: ApiZone[];
+  seatMapImageUrl?: string | null;
+  seat_map_image_url?: string | null;
+}
+
 export interface ApiOrder {
   id: number;
   orderCode: string;
@@ -64,6 +83,8 @@ export interface ApiOrder {
   eventId: number;
   status: 'PENDING' | 'PAID' | 'CANCELLED' | 'EXPIRED' | 'REFUNDED';
   totalAmount: number;
+  itemCount?: number;
+  item_count?: number;
   expiresAt: string;
   paidAt?: string | null;
   createdAt?: string;
@@ -73,6 +94,18 @@ export interface ApiOrder {
     title: string;
     location: string;
     startTime: string;
+  };
+  user?: {
+    id: number;
+    fullName: string;
+    email: string;
+    phone?: string | null;
+  };
+  customer?: {
+    id: number;
+    fullName: string;
+    email: string;
+    phone?: string | null;
   };
 }
 
@@ -230,7 +263,7 @@ export const apiClient = {
     return request<{ event: ApiEvent; zones: ApiZone[]; stats: ApiStats }>(`/api/events/${eventId}`);
   },
   async getSeatMap(eventId: number) {
-    return request<{ event: Pick<ApiEvent, 'id' | 'title' | 'status' | 'location' | 'startTime'>; zones: ApiZone[] }>(`/api/events/${eventId}/seat-map`);
+    return request<ApiSeatMapResponse>(`/api/events/${eventId}/seat-map`);
   },
   async joinQueue(eventId: number) {
     return request<ApiQueueEntry>(`/api/events/${eventId}/queue/join`, { method: 'POST' });
@@ -253,8 +286,19 @@ export const apiClient = {
   async getOrder(orderId: number) {
     return request<{ order: ApiOrder; items: ApiOrderItem[] }>(`/api/customer/orders/${orderId}`);
   },
+  async listAdminOrders() {
+    return request<{ data: ApiOrder[] }>('/api/admin/orders');
+  },
+  async getAdminOrder(orderId: number) {
+    return request<{ order: ApiOrder; items: ApiOrderItem[] }>(`/api/admin/orders/${orderId}`);
+  },
   async confirmPayment(orderId: number, _paymentMethod?: PaymentMethod) {
     return request<{ success: true; order: ApiOrder; items: ApiOrderItem[] }>(`/api/customer/orders/${orderId}/confirm-payment`, {
+      method: 'POST',
+    });
+  },
+  async cancelHold(orderId: number) {
+    return request<{ success: true; order: ApiOrder; items: ApiOrderItem[] }>(`/api/customer/orders/${orderId}/cancel-hold`, {
       method: 'POST',
     });
   },
@@ -268,6 +312,11 @@ export const apiClient = {
     saleEndTime?: string | null;
     status: EventStatus;
     bannerUrl?: string | null;
+    seatPlan?: string | null;
+    seatPlanCode?: string | null;
+    seatMapImageUrl?: string | null;
+    queueMode?: 'AUTO' | 'MANUAL' | 'OFF';
+    queueThreshold?: number;
   }) {
     return request<{ event: ApiEvent }>('/api/admin/events', {
       method: 'POST',
@@ -305,6 +354,11 @@ export const apiClient = {
     saleEndTime?: string | null;
     status?: EventStatus;
     bannerUrl?: string | null;
+    seatPlan?: string | null;
+    seatPlanCode?: string | null;
+    seatMapImageUrl?: string | null;
+    queueMode?: 'AUTO' | 'MANUAL' | 'OFF';
+    queueThreshold?: number;
   }) {
     return request<{ event: ApiEvent }>(`/api/admin/events/${eventId}`, {
       method: 'PUT',
@@ -325,7 +379,7 @@ export const apiClient = {
     });
   },
   async getAudienceStatistics(eventId: number) {
-    return request<{ totalUsers: number; newUsers: number; returningUsers: number }>(`/api/admin/events/${eventId}/audience-statistics`);
+    return request<AudienceStatistics>(`/api/admin/events/${eventId}/audience-statistics`);
   },
 };
 

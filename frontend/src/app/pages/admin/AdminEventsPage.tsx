@@ -1,64 +1,44 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { CalendarDays, Check, Edit3, Eye, Plus, Search, Timer, Trash2, X } from 'lucide-react';
+import { CalendarDays, Edit3, Plus, Search, Timer, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '../../store/AppContext';
 import { usePreferences } from '../../store/PreferencesContext';
 import { getEventStatusLabel } from '../../data/types';
 import { formatDateTime, formatPrice, getAutoEventStatus, requiresQueue } from '../../data/mockData';
 import { useClockTick } from '../../hooks/useClockTick';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../components/ui/alert-dialog';
 
 export default function AdminEventsPage() {
-  const { events, getStats, getZones, deleteEvent, updateEventData, apiReady } = useApp();
+  const { events, getStats, getZones, deleteEvent } = useApp();
   const { language, t } = usePreferences();
   const now = useClockTick();
   const [search, setSearch] = useState('');
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ title: '', location: '', description: '' });
   const [loading, setLoading] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<typeof events[0] | null>(null);
 
   const filtered = events.filter(event => {
     const value = search.trim().toLowerCase();
     return !value || event.title.toLowerCase().includes(value) || event.location.toLowerCase().includes(value);
   });
 
-  const startEdit = (event: typeof events[0]) => {
-    setEditingId(event.id);
-    setEditForm({ title: event.title, location: event.location, description: event.description });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm({ title: '', location: '', description: '' });
-  };
-
-  const handleSaveEdit = async (eventId: number) => {
-    if (!editForm.title.trim() || !editForm.location.trim()) {
-      toast.error('Tiêu đề và địa điểm không được trống');
-      return;
-    }
-    setLoading(eventId);
-    try {
-      await updateEventData(eventId, {
-        title: editForm.title.trim(),
-        location: editForm.location.trim(),
-        description: editForm.description.trim(),
-      });
-      toast.success('Đã cập nhật sự kiện');
-      cancelEdit();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Không thể cập nhật');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleDelete = async (eventId: number, title: string) => {
-    if (!confirm(`Xác nhận xóa sự kiện "${title}"?`)) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const eventId = deleteTarget.id;
     setLoading(eventId);
     try {
       await deleteEvent(eventId);
       toast.success('Đã xóa sự kiện');
+      setDeleteTarget(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Không thể xóa');
     } finally {
@@ -106,34 +86,24 @@ export default function AdminEventsPage() {
                   const stats = getStats(event.id);
                   const zones = getZones(event.id);
                   const status = getAutoEventStatus(event, stats, now);
-                  const isEditing = editingId === event.id;
                   const isLoading = loading === event.id;
                   return (
                     <tr key={event.id} className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                       <td className="px-4 py-3">
-                        {isEditing ? (
-                          <div className="space-y-2">
-                            <input value={editForm.title} onChange={e => setEditForm(prev => ({ ...prev, title: e.target.value }))} className="w-full rounded-md px-2 py-1.5 text-sm outline-none bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700" placeholder={language === 'en' ? 'Title' : 'Tiêu đề'} />
-                            <input value={editForm.description} onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))} className="w-full rounded-md px-2 py-1.5 text-sm outline-none bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700" placeholder={language === 'en' ? 'Description' : 'Mô tả'} />
+                        <div className="flex items-center gap-3">
+                          <img src={event.banner_url} alt={event.title} className="h-11 w-11 rounded-md object-cover" />
+                          <div>
+                            <div className="font-black">{event.title}</div>
+                            <div className="font-mono text-xs" style={{ color: '#64748B' }}>#{event.id}</div>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-3">
-                            <img src={event.banner_url} alt={event.title} className="h-11 w-11 rounded-md object-cover" />
-                            <div>
-                              <div className="font-black">{event.title}</div>
-                              <div className="font-mono text-xs" style={{ color: '#64748B' }}>#{event.id}</div>
-                            </div>
-                          </div>
-                        )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 font-bold"><CalendarDays size={14} className="text-orange-500" /> {formatDateTime(event.event_time)}</div>
                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{language === 'en' ? 'Sale ends' : 'Mở bán đến'} {formatDateTime(event.sale_end_time)}</div>
                       </td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                        {isEditing ? (
-                          <input value={editForm.location} onChange={e => setEditForm(prev => ({ ...prev, location: e.target.value }))} className="w-full rounded-md px-2 py-1.5 text-sm outline-none bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700" placeholder={language === 'en' ? 'Location' : 'Địa điểm'} />
-                        ) : event.location}
+                        {event.location}
                       </td>
                       <td className="px-4 py-3">{zones.length} {language === 'en' ? 'zones' : 'khu'}</td>
                       <td className="px-4 py-3">
@@ -153,44 +123,18 @@ export default function AdminEventsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
-                          {isEditing ? (
-                            <>
-                              <button
-                                onClick={() => handleSaveEdit(event.id)}
-                                disabled={isLoading}
-                                className="inline-flex rounded-md p-2"
-                                style={{ background: '#DCFCE7', color: '#16A34A' }}
-                                title="Lưu"
-                              >
-                                {isLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-green-300 border-t-green-600" /> : <Check size={16} />}
-                              </button>
-                              <button onClick={cancelEdit} className="inline-flex rounded-md p-2" style={{ background: '#F1F5F9', color: '#475569' }} title="Hủy">
-                                <X size={16} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <Link to={`/events/${event.id}`} className="inline-flex rounded-md p-2" style={{ background: '#F1F5F9', color: '#475569' }} title="Xem">
-                                <Eye size={16} />
-                              </Link>
-                              {apiReady && (
-                                <>
-                                  <button onClick={() => startEdit(event)} className="inline-flex rounded-md p-2" style={{ background: '#E0F2FE', color: '#0369A1' }} title="Sửa">
-                                    <Edit3 size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDelete(event.id, event.title)}
-                                    disabled={isLoading}
-                                    className="inline-flex rounded-md p-2"
-                                    style={{ background: '#FEF2F2', color: '#DC2626' }}
-                                    title="Xóa"
-                                  >
-                                    {isLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" /> : <Trash2 size={16} />}
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          )}
+                          <Link to={`/admin/events/${event.id}/edit`} className="inline-flex rounded-md p-2" style={{ background: '#E0F2FE', color: '#0369A1' }} title={language === 'en' ? 'Edit' : 'Sửa'}>
+                            <Edit3 size={16} />
+                          </Link>
+                          <button
+                            onClick={() => setDeleteTarget(event)}
+                            disabled={isLoading}
+                            className="inline-flex rounded-md p-2"
+                            style={{ background: '#FEF2F2', color: '#DC2626' }}
+                            title={language === 'en' ? 'Delete' : 'Xóa'}
+                          >
+                            {isLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" /> : <Trash2 size={16} />}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -201,6 +145,28 @@ export default function AdminEventsPage() {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={open => !open && setDeleteTarget(null)}>
+        <AlertDialogContent className="bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{language === 'en' ? 'Delete event?' : 'Xóa sự kiện?'}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {language === 'en'
+                ? `This will remove "${deleteTarget?.title ?? ''}" from the admin event list.`
+                : `Thao tác này sẽ xóa "${deleteTarget?.title ?? ''}" khỏi danh sách sự kiện.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{language === 'en' ? 'Cancel' : 'Hủy'}</AlertDialogCancel>
+            <AlertDialogAction onClick={event => {
+              event.preventDefault();
+              void handleDelete();
+            }} className="bg-red-600 text-white hover:bg-red-700">
+              {language === 'en' ? 'Delete' : 'Xóa'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

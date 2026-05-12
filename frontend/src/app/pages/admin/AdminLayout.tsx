@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, Calendar, Plus, LogOut, Ticket, ChevronRight, Languages, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, Calendar, Plus, LogOut, ReceiptText, ChevronRight, Languages, Moon, Sun } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { usePreferences } from '../../store/PreferencesContext';
 import { BrandLogo } from '../../components/BrandLogo';
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { path: '/admin', icon: LayoutDashboard, labelKey: 'dashboard' },
   { path: '/admin/events', icon: Calendar, labelKey: 'events' },
   { path: '/admin/events/new', icon: Plus, labelKey: 'createEvent' },
+  { path: '/admin/orders', icon: ReceiptText, labelKey: 'orders' },
 ] as const;
 
 export default function AdminLayout() {
@@ -40,7 +41,7 @@ export default function AdminLayout() {
         style={{ background: '#0D0D1F', borderRight: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}>
         {/* Logo */}
         <div className="p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/admin" className="flex items-center gap-2">
             <BrandLogo size="sm" textClassName="text-base" />
           </Link>
           <div className="mt-3 flex items-center gap-2">
@@ -97,11 +98,6 @@ export default function AdminLayout() {
               {language.toUpperCase()}
             </button>
           </div>
-          <Link to="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:bg-white/5 mb-1"
-            style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem' }}>
-            <Ticket size={15} /> {t('customerSite')}
-          </Link>
           <button onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left transition-all hover:bg-red-900/20"
             style={{ color: '#FF6B6B', fontSize: '0.85rem' }}>

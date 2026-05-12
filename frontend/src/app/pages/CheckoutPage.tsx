@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, Banknote, CheckCircle2, Clock, CreditCard, Landmark, ShieldCheck, Ticket } from 'lucide-react';
+import { ArrowLeft, Banknote, CheckCircle2, Clock, CreditCard, Landmark, ShieldCheck, Ticket, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '../store/AppContext';
 import { usePreferences } from '../store/PreferencesContext';
@@ -25,6 +25,7 @@ export default function CheckoutPage() {
     getUserSeats,
     getSeatZone,
     confirmOrder,
+    cancelHeldSeats,
     holdExpiry,
     clearUserSeats,
     setHoldExpiry,
@@ -49,6 +50,7 @@ export default function CheckoutPage() {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('VNPAY');
   const [loading, setLoading] = useState(false);
+  const [cancellingHold, setCancellingHold] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState<Order | null>(null);
   const [confirmedSeats, setConfirmedSeats] = useState<Seat[]>([]);
 
@@ -95,6 +97,22 @@ export default function CheckoutPage() {
       toast.error(error instanceof Error ? error.message : (language === 'en' ? 'Payment failed' : 'Thanh toán thất bại'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCancelHold = async () => {
+    if (!eventId || !orderId) return;
+    setCancellingHold(true);
+    try {
+      const cancelled = await cancelHeldSeats(eventId, orderId);
+      if (cancelled) {
+        toast.success(language === 'en' ? 'Held seats cancelled' : 'Đã hủy giữ ghế');
+        navigate(`/events/${eventId}/seats`, { replace: true });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : (language === 'en' ? 'Could not cancel held seats' : 'Không thể hủy giữ ghế'));
+    } finally {
+      setCancellingHold(false);
     }
   };
 
@@ -260,11 +278,20 @@ export default function CheckoutPage() {
             </div>
             <div className="my-4 flex items-center gap-2 rounded-md p-3 text-sm" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>
               <ShieldCheck size={16} />
-              <span>{language === 'en' ? 'Seats will be kept for you after payment confirmation' : 'Ghế sẽ được giữ cho bạn sau khi xác nhận thanh toán'}</span>
+              <span>{language === 'en' ? 'Seats are being held during the payment window' : 'Ghế đang được giữ trong thời hạn thanh toán'}</span>
             </div>
-            <button onClick={handleConfirm} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 font-black text-white" style={{ background: loading ? '#FDBA74' : '#F97316' }}>
+            <button onClick={handleConfirm} disabled={loading || cancellingHold} className="flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 font-black text-white" style={{ background: loading || cancellingHold ? '#FDBA74' : '#F97316' }}>
               {loading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <CreditCard size={17} />}
               {language === 'en' ? 'Confirm payment' : 'Xác nhận thanh toán'}
+            </button>
+            <button
+              onClick={handleCancelHold}
+              disabled={loading || cancellingHold}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 font-black"
+              style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', opacity: loading || cancellingHold ? 0.72 : 1 }}
+            >
+              {cancellingHold ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" /> : <XCircle size={17} />}
+              {language === 'en' ? 'Cancel held seats' : 'Hủy giữ ghế'}
             </button>
           </div>
         </aside>

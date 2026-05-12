@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Seat, SeatZone } from '../data/types';
+import type { Seat, SeatZone, ZoneLayout } from '../data/types';
 import { getSeatStatusLabel } from '../data/types';
 import { formatPrice, getZoneColor } from '../data/mockData';
 import { usePreferences } from '../store/PreferencesContext';
@@ -7,6 +7,8 @@ import { usePreferences } from '../store/PreferencesContext';
 interface SeatMapProps {
   zones: SeatZone[];
   seats: Seat[];
+  layouts?: Array<ZoneLayout | undefined>;
+  seatMapImageUrl?: string;
   onSeatClick: (seat: Seat) => void;
   maxSelect?: number;
 }
@@ -23,126 +25,148 @@ function seatStyle(seat: Seat, zoneColor: string) {
     return { background: '#F97316', border: '#FDBA74', color: '#fff', shadow: '0 0 0 2px rgba(249,115,22,0.28)' };
   }
   if (seat.status === 'available') {
-    return { background: `${zoneColor}30`, border: zoneColor, color: '#fff', shadow: 'none' };
+    return { background: `${zoneColor}1F`, border: zoneColor, color: '#0F172A', shadow: 'none' };
   }
   if (seat.status === 'locked') {
-    return { background: '#334155', border: '#64748B', color: '#CBD5E1', shadow: 'none' };
+    return { background: '#E2E8F0', border: '#94A3B8', color: '#64748B', shadow: 'none' };
   }
-  return { background: '#0F172A', border: '#1E293B', color: '#475569', shadow: 'none' };
+  return { background: '#F1F5F9', border: '#CBD5E1', color: '#94A3B8', shadow: 'none' };
 }
 
-export function SeatMap({ zones, seats, onSeatClick, maxSelect = 8 }: SeatMapProps) {
+function sortedRowLabels(seats: Seat[]) {
+  return Array.from(new Set(seats.map(seat => seat.row_label))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+export function SeatMap({ zones, seats, layouts = [], seatMapImageUrl, onSeatClick, maxSelect = 8 }: SeatMapProps) {
   const { language } = usePreferences();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [activeZone, setActiveZone] = useState<number | null>(null);
   const selectedCount = seats.filter(seat => seat.status === 'selected').length;
+  const layoutByZone = new Map(
+    layouts
+      .filter((layout): layout is ZoneLayout => Boolean(layout))
+      .map(layout => [layout.zone_id, layout]),
+  );
 
   return (
     <div className="relative select-none">
-      <div className="mb-7 flex justify-center">
-        <div className="relative">
-          <div
-            className="rounded-md px-20 py-3 text-center text-xs font-extrabold uppercase tracking-[0.32em]"
-            style={{
-              background: 'linear-gradient(90deg, rgba(14,165,233,0.28), rgba(249,115,22,0.28))',
-              border: '1px solid rgba(255,255,255,0.16)',
-              color: 'rgba(255,255,255,0.78)',
-            }}
-          >
-            {language === 'en' ? 'Stage' : 'Sân khấu'}
-          </div>
-          <div className="absolute -bottom-4 left-1/2 h-5 w-3/4 -translate-x-1/2 rounded-full" style={{ background: 'rgba(249,115,22,0.24)', filter: 'blur(12px)' }} />
-        </div>
-      </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          {zones.map(zone => {
+            const layout = layoutByZone.get(zone.id);
+            const zoneColor = zone.color || layout?.color || getZoneColor(zone.id);
+            const zoneSeats = seats.filter(seat => seat.zone_id === zone.id);
+            const rowLabels = sortedRowLabels(zoneSeats);
+            const available = zoneSeats.filter(seat => seat.status === 'available').length;
+            const cols = layout?.cols || Math.max(1, ...zoneSeats.map(seat => seat.seat_number));
+            const rows = layout?.rows || rowLabels.length;
 
-      <div className="space-y-5">
-        {zones.map(zone => {
-          const zoneColor = zone.color || getZoneColor(zone.id);
-          const zoneSeats = seats.filter(seat => seat.zone_id === zone.id);
-          const rowLabels = Array.from(new Set(zoneSeats.map(seat => seat.row_label))).sort();
-          const available = zoneSeats.filter(seat => seat.status === 'available').length;
-
-          return (
-            <section
-              key={zone.id}
-              className="overflow-hidden rounded-lg"
-              onMouseEnter={() => setActiveZone(zone.id)}
-              onMouseLeave={() => setActiveZone(null)}
-              style={{
-                background: activeZone === zone.id ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)',
-                border: `1px solid ${activeZone === zone.id ? `${zoneColor}66` : 'rgba(255,255,255,0.08)'}`,
-              }}
-            >
-              <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                <div className="flex items-center gap-3">
-                  <span className="h-3 w-3 rounded-sm" style={{ background: zoneColor }} />
-                  <div>
-                    <h3 className="text-sm font-bold" style={{ color: '#fff' }}>{zone.name}</h3>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.42)' }}>{language === 'en' ? 'Zone' : 'Khu'} {zone.name} • {zone.total_capacity} {language === 'en' ? 'seats' : 'ghế'}</p>
+            return (
+              <section
+                key={zone.id}
+                className="overflow-hidden rounded-lg"
+                onMouseEnter={() => setActiveZone(zone.id)}
+                onMouseLeave={() => setActiveZone(null)}
+                style={{
+                  background: '#fff',
+                  border: `1px solid ${activeZone === zone.id ? `${zoneColor}80` : '#E2E8F0'}`,
+                  boxShadow: activeZone === zone.id ? `0 18px 36px ${zoneColor}18` : 'none',
+                }}
+              >
+                <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="h-3.5 w-3.5 rounded-sm" style={{ background: zoneColor }} />
+                    <div>
+                      <h3 className="text-sm font-black" style={{ color: '#0F172A' }}>{zone.name}</h3>
+                      <p className="text-xs" style={{ color: '#64748B' }}>{rows} {language === 'en' ? 'rows' : 'hàng'} x {cols} {language === 'en' ? 'columns' : 'cột'} • {zone.total_capacity} {language === 'en' ? 'seats' : 'ghế'}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-md px-2 py-1 text-xs font-bold" style={{ background: `${zoneColor}22`, color: zoneColor }}>
-                    {formatPrice(zone.price)}
-                  </span>
-                  <span className="rounded-md px-2 py-1 text-xs" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.62)' }}>
-                    {available}/{zone.total_capacity} {language === 'en' ? 'available' : 'trống'}
-                  </span>
-                </div>
-              </header>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md px-2 py-1 text-xs font-bold" style={{ background: `${zoneColor}1F`, color: zoneColor }}>
+                      {formatPrice(zone.price)}
+                    </span>
+                    <span className="rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#F8FAFC', color: '#475569', border: '1px solid #E2E8F0' }}>
+                      {available}/{zone.total_capacity} {language === 'en' ? 'available' : 'trống'}
+                    </span>
+                  </div>
+                </header>
 
-              <div className="overflow-x-auto p-4">
-                <div className="mx-auto min-w-max">
-                  {rowLabels.map(rowLabel => {
-                    const rowSeats = zoneSeats
-                      .filter(seat => seat.row_label === rowLabel)
-                      .sort((a, b) => a.seat_number - b.seat_number);
+                <div className="overflow-x-auto p-4">
+                  {rowLabels.length === 0 ? (
+                    <div className="rounded-md py-8 text-center text-sm" style={{ background: '#F8FAFC', color: '#64748B' }}>
+                      {language === 'en' ? 'No seats' : 'Chưa có ghế'}
+                    </div>
+                  ) : (
+                    <div className="min-w-max">
+                      {rowLabels.map(rowLabel => {
+                        const rowSeats = zoneSeats
+                          .filter(seat => seat.row_label === rowLabel)
+                          .sort((a, b) => a.seat_number - b.seat_number);
 
-                    return (
-                      <div key={rowLabel} className="mb-1 flex items-center gap-1">
-                        <span className="mr-1 w-5 text-center font-mono text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>{rowLabel}</span>
-                        {rowSeats.map(seat => {
-                          const style = seatStyle(seat, zoneColor);
-                          const canClick = seat.status === 'available' || seat.status === 'selected';
-                          const maxReached = seat.status === 'available' && selectedCount >= maxSelect;
+                        return (
+                          <div key={rowLabel} className="mb-1.5 flex items-center gap-1.5">
+                            <span className="mr-1 w-6 text-center font-mono text-xs font-bold" style={{ color: '#94A3B8' }}>{rowLabel}</span>
+                            {rowSeats.map(seat => {
+                              const style = seatStyle(seat, zoneColor);
+                              const canClick = seat.status === 'available' || seat.status === 'selected';
+                              const maxReached = seat.status === 'available' && selectedCount >= maxSelect;
 
-                          return (
-                            <button
-                              key={seat.id}
-                              type="button"
-                              aria-label={`${zone.name} ${seat.row_label}${seat.seat_number} ${getSeatStatusLabel(seat.status, language)}`}
-                              className="flex shrink-0 items-center justify-center rounded-[3px] text-[9px] transition-transform hover:scale-110"
-                              style={{
-                                width: 24,
-                                height: 24,
-                                background: style.background,
-                                border: `1px solid ${style.border}`,
-                                color: style.color,
-                                boxShadow: style.shadow,
-                                cursor: canClick && !maxReached ? 'pointer' : maxReached ? 'not-allowed' : 'default',
-                                opacity: maxReached ? 0.38 : 1,
-                              }}
-                              onClick={() => {
-                                if (canClick && !maxReached) onSeatClick(seat);
-                              }}
-                              onMouseEnter={event => {
-                                const rect = event.currentTarget.getBoundingClientRect();
-                                setTooltip({ seat, zone, x: rect.left + rect.width / 2, y: rect.top });
-                              }}
-                              onMouseLeave={() => setTooltip(null)}
-                            >
-                              {seat.seat_number}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
+                              return (
+                                <button
+                                  key={seat.id}
+                                  type="button"
+                                  aria-label={`${zone.name} ${seat.row_label}${seat.seat_number} ${getSeatStatusLabel(seat.status, language)}`}
+                                  className="flex shrink-0 items-center justify-center rounded-[4px] text-[9px] font-bold transition-transform hover:scale-110"
+                                  style={{
+                                    width: 24,
+                                    height: 24,
+                                    background: style.background,
+                                    border: `1px solid ${style.border}`,
+                                    color: style.color,
+                                    boxShadow: style.shadow,
+                                    cursor: canClick && !maxReached ? 'pointer' : maxReached ? 'not-allowed' : 'default',
+                                    opacity: maxReached ? 0.38 : 1,
+                                  }}
+                                  onClick={() => {
+                                    if (canClick && !maxReached) onSeatClick(seat);
+                                  }}
+                                  onMouseEnter={event => {
+                                    const rect = event.currentTarget.getBoundingClientRect();
+                                    setTooltip({ seat, zone, x: rect.left + rect.width / 2, y: rect.top });
+                                  }}
+                                  onMouseLeave={() => setTooltip(null)}
+                                >
+                                  {seat.seat_number}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            </section>
-          );
-        })}
+              </section>
+            );
+          })}
+        </div>
+
+        <aside className="xl:sticky xl:top-28 xl:self-start">
+          <div className="rounded-lg p-4" style={{ background: '#020617', border: '1px solid #0F172A' }}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-black" style={{ color: '#fff' }}>{language === 'en' ? 'Seat map image' : 'Ảnh sơ đồ ghế'}</h3>
+            </div>
+            <div className="flex h-96 items-center justify-center overflow-hidden rounded-md" style={{ background: '#030712', border: '1px solid rgba(255,255,255,0.1)' }}>
+              {seatMapImageUrl ? (
+                <img src={seatMapImageUrl} alt={language === 'en' ? 'Seat map' : 'Sơ đồ ghế'} className="h-full w-full object-contain" />
+              ) : (
+                <div className="px-6 text-center text-sm font-bold" style={{ color: 'rgba(255,255,255,0.52)' }}>
+                  {language === 'en' ? 'No seat map image yet' : 'Chưa có ảnh sơ đồ ghế'}
+                </div>
+              )}
+            </div>
+          </div>
+        </aside>
       </div>
 
       {tooltip && (
@@ -172,10 +196,10 @@ export function SeatMap({ zones, seats, onSeatClick, maxSelect = 8 }: SeatMapPro
         {[
           { label: getSeatStatusLabel('available', language), color: '#38BDF8', background: 'rgba(56,189,248,0.18)' },
           { label: getSeatStatusLabel('selected', language), color: '#F97316', background: '#F97316' },
-          { label: getSeatStatusLabel('locked', language), color: '#94A3B8', background: '#334155' },
-          { label: getSeatStatusLabel('sold', language), color: '#475569', background: '#0F172A' },
+          { label: getSeatStatusLabel('locked', language), color: '#94A3B8', background: '#E2E8F0' },
+          { label: getSeatStatusLabel('sold', language), color: '#CBD5E1', background: '#F1F5F9' },
         ].map(item => (
-          <div key={item.label} className="flex items-center gap-2 text-xs" style={{ color: 'rgba(255,255,255,0.56)' }}>
+          <div key={item.label} className="flex items-center gap-2 text-xs" style={{ color: 'rgba(15,23,42,0.62)' }}>
             <span className="h-3.5 w-3.5 rounded-[3px]" style={{ background: item.background, border: `1px solid ${item.color}` }} />
             {item.label}
           </div>

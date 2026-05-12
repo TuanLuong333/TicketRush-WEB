@@ -16,7 +16,9 @@ import {
   getZonesForEvent,
   makeOrderCode,
   makeQueueToken,
+  applySeatPlanLayouts,
 } from '../data/mockData';
+import { AUTO_QUEUE_THRESHOLD } from '../data/types';
 import type {
   Event,
   EventStats,
@@ -55,7 +57,8 @@ interface AppContextValue {
   apiReady: boolean;
   apiLoading: boolean;
   apiError: string | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  adminOrdersAvailable: boolean | null;
+  login: (email: string, password: string) => Promise<User | null>;
   logout: () => void;
   register: (data: Partial<User> & { password?: string }) => Promise<boolean>;
   updateUser: (data: Partial<User>) => void;
@@ -71,14 +74,16 @@ interface AppContextValue {
   getZones: (eventId: string | number) => SeatZone[];
   getSeats: (eventId: string | number) => Seat[];
   getSeatZone: (seat: Seat) => SeatZone | undefined;
+  getZoneLayout: (zoneId: string | number) => ZoneLayout | undefined;
   getStats: (eventId: string | number) => EventStats;
   addEvent: (event: Event, zones: SeatZone[], layouts: ZoneLayout[]) => Promise<Event | null>;
   deleteEvent: (eventId: number) => Promise<boolean>;
   publishEvent: (eventId: number) => Promise<boolean>;
-  updateEventData: (eventId: number, data: Partial<Event>) => Promise<boolean>;
+  updateEventData: (eventId: number, data: Partial<Event>, zones?: SeatZone[], layouts?: ZoneLayout[]) => Promise<boolean>;
   refreshEvents: () => Promise<void>;
   refreshSeatMap: (eventId: string | number) => Promise<void>;
   refreshOrders: () => Promise<void>;
+  refreshAdminOrders: () => Promise<void>;
 
   selectSeat: (eventId: string | number, seatId: number) => void;
   deselectSeat: (eventId: string | number, seatId: number) => void;
@@ -87,6 +92,7 @@ interface AppContextValue {
   holdExpiry: Date | null;
   setHoldExpiry: (date: Date | null) => void;
   holdSeats: (eventId: string | number) => Promise<HoldResult>;
+  cancelHeldSeats: (eventId: string | number, orderId?: number | null) => Promise<boolean>;
   activeOrderId: number | null;
   confirmOrder: (orderId: number, paymentMethod: PaymentMethod) => Promise<Order | null>;
 
@@ -121,14 +127,82 @@ function replaceEventSlice<T extends { id: number }>(current: T[], incoming: T[]
   return mergeById(current.filter(item => !incoming.some(next => next.id === item.id)), incoming);
 }
 
+const LOCAL_BANNERS_KEY = 'ticketrush.localBanners';
+const LOCAL_SEAT_MAPS_KEY = 'ticketrush.localSeatMaps';
+
+function isInlineImage(value?: string | null): value is string {
+  return Boolean(value?.startsWith('data:image/'));
+}
+
+function readLocalBanners(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(LOCAL_BANNERS_KEY) || '{}') as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalBanner(eventId: number, bannerUrl?: string | null) {
+  if (!isInlineImage(bannerUrl) || typeof window === 'undefined') return;
+  try {
+    const banners = readLocalBanners();
+    banners[String(eventId)] = bannerUrl;
+    window.localStorage.setItem(LOCAL_BANNERS_KEY, JSON.stringify(banners));
+  } catch {
+    // The in-memory event state still shows the banner even if localStorage quota is full.
+  }
+}
+
+
+function readLocalSeatMaps(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(LOCAL_SEAT_MAPS_KEY) || '{}') as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalSeatMap(eventId: number, seatMapUrl?: string | null) {
+  if (!isInlineImage(seatMapUrl) || typeof window === 'undefined') return;
+  try {
+    const seatMaps = readLocalSeatMaps();
+    seatMaps[String(eventId)] = seatMapUrl;
+    window.localStorage.setItem(LOCAL_SEAT_MAPS_KEY, JSON.stringify(seatMaps));
+  } catch {
+    // The in-memory event state still shows the seat map even if localStorage quota is full.
+  }
+}
+
+function applyLocalBanner(event: Event): Event {
+  const eventId = String(event.id);
+  const banner = readLocalBanners()[eventId];
+  const seatMap = readLocalSeatMaps()[eventId];
+  return {
+    ...event,
+    ...(banner ? { banner_url: banner } : {}),
+    ...(seatMap ? { seat_map_image_url: seatMap } : {}),
+  };
+}
+
+function extractSeatMapImageUrl(payload: {
+  event?: { seatMapImageUrl?: string | null; seat_map_image_url?: string | null };
+  seatMapImageUrl?: string | null;
+  seat_map_image_url?: string | null;
+}): string | undefined {
+  return payload.event?.seatMapImageUrl || payload.event?.seat_map_image_url || payload.seatMapImageUrl || payload.seat_map_image_url || undefined;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [apiReady, setApiReady] = useState(false);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [events, setEvents] = useState<Event[]>(EVENTS);
+  const [adminOrdersAvailable, setAdminOrdersAvailable] = useState<boolean | null>(null);
+  const [events, setEvents] = useState<Event[]>(() => EVENTS.map(applyLocalBanner));
   const [seatZones, setSeatZones] = useState<SeatZone[]>(SEAT_ZONES);
-  const [, setZoneLayouts] = useState<ZoneLayout[]>(ZONE_LAYOUTS);
+  const [zoneLayouts, setZoneLayouts] = useState<ZoneLayout[]>(ZONE_LAYOUTS);
   const [seats, setSeats] = useState<Seat[]>(SEATS);
   const [orders, setOrders] = useState<Order[]>(ORDERS);
   const [orderItems, setOrderItems] = useState<OrderItem[]>(ORDER_ITEMS);
@@ -139,30 +213,87 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [currentQueueEntry, setCurrentQueueEntry] = useState<QueueEntry | null>(null);
 
+  useEffect(() => {
+    const releaseExpiredLocks = () => {
+      const now = Date.now();
+      setSeats(prev => prev.map(seat => {
+        if (seat.status !== 'locked' || !seat.lock_expires_at) return seat;
+        if (new Date(seat.lock_expires_at).getTime() > now) return seat;
+        return {
+          ...seat,
+          status: 'available' as SeatStatus,
+          locked_by: undefined,
+          lock_expires_at: undefined,
+          updated_at: new Date().toISOString(),
+        };
+      }));
+      setOrders(prev => prev.map(order => (
+        order.status === 'pending' && new Date(order.expires_at).getTime() <= now
+          ? { ...order, status: 'expired' as const, updated_at: new Date().toISOString() }
+          : order
+      )));
+    };
+
+    releaseExpiredLocks();
+    const timer = window.setInterval(releaseExpiredLocks, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const applySeatMap = useCallback((eventId: number, zones: SeatZone[], layouts: ZoneLayout[], nextSeats: Seat[]) => {
+    const now = Date.now();
+    const normalizedSeats = nextSeats.map(seat => {
+      const lockExpiry = seat.lock_expires_at ? new Date(seat.lock_expires_at).getTime() : Number.POSITIVE_INFINITY;
+      if (seat.status === 'locked' && lockExpiry <= now) {
+        return { ...seat, status: 'available' as SeatStatus, locked_by: undefined, lock_expires_at: undefined };
+      }
+      return seat;
+    });
     setSeatZones(prev => [...prev.filter(zone => zone.event_id !== eventId), ...zones]);
     setZoneLayouts(prev => [...prev.filter(layout => !zones.some(zone => zone.id === layout.zone_id)), ...layouts]);
     setSeats(prev => {
       const zoneIds = new Set(zones.map(zone => zone.id));
-      return [...prev.filter(seat => !zoneIds.has(seat.zone_id)), ...nextSeats];
+      const localSelected = new Map(prev.filter(seat => seat.status === 'selected').map(seat => [seat.id, seat]));
+      const mergedSeats = normalizedSeats.map(seat => {
+        const selected = localSelected.get(seat.id);
+        return selected && seat.status === 'available' ? { ...seat, status: 'selected' as SeatViewStatus } : seat;
+      });
+      return [...prev.filter(seat => !zoneIds.has(seat.zone_id)), ...mergedSeats];
     });
-  }, []);
+    setSelectedSeatIds(prev => {
+      const current = prev[eventId];
+      if (!current) return prev;
+      const keepableSeatIds = new Set(normalizedSeats.filter(seat => seat.status === 'available' || (seat.status === 'locked' && activeOrderId && holdExpiry && holdExpiry.getTime() > Date.now())).map(seat => seat.id));
+      const next = new Set(Array.from(current).filter(seatId => keepableSeatIds.has(seatId)));
+      return next.size === current.size ? prev : { ...prev, [eventId]: next };
+    });
+  }, [activeOrderId, holdExpiry]);
 
   const refreshSeatMap = useCallback(async (eventIdInput: string | number) => {
     if (!apiReady) return;
     const eventId = asId(eventIdInput);
     const map = await apiClient.getSeatMap(eventId);
+    const seatMapImageUrl = extractSeatMapImageUrl(map);
+    if (seatMapImageUrl) {
+      setEvents(prev => prev.map(event => (
+        event.id === eventId ? applyLocalBanner({ ...event, seat_map_image_url: seatMapImageUrl }) : event
+      )));
+    }
     const adapted = adaptSeatMap(eventId, map.zones);
-    applySeatMap(eventId, adapted.zones, adapted.layouts, adapted.seats);
-  }, [apiReady, applySeatMap]);
+    const event = events.find(item => item.id === eventId);
+    const layouts = event ? applySeatPlanLayouts(adapted.layouts, adapted.zones, event.seat_plan) : adapted.layouts;
+    applySeatMap(eventId, adapted.zones, layouts, adapted.seats);
+  }, [apiReady, applySeatMap, events]);
 
   const refreshEvents = useCallback(async () => {
     setApiLoading(true);
     try {
       await apiClient.health();
       const apiEvents = await apiClient.listAllEvents();
-      const nextEvents = apiEvents.map(adaptEvent);
+      const nextEvents = apiEvents.map(adaptEvent).map(applyLocalBanner);
       setEvents(nextEvents);
+      setOrders([]);
+      setOrderItems([]);
+      setAdminOrdersAvailable(null);
       setApiReady(true);
       setApiError(null);
 
@@ -170,18 +301,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (let index = 0; index < maps.length; index += 1) {
         const result = maps[index];
         if (result.status === 'fulfilled') {
+          const seatMapImageUrl = extractSeatMapImageUrl(result.value);
+          if (seatMapImageUrl) {
+            setEvents(prev => prev.map(event => (
+              event.id === nextEvents[index].id ? applyLocalBanner({ ...event, seat_map_image_url: seatMapImageUrl }) : event
+            )));
+          }
           const adapted = adaptSeatMap(nextEvents[index].id, result.value.zones);
-          applySeatMap(nextEvents[index].id, adapted.zones, adapted.layouts, adapted.seats);
+          const layouts = applySeatPlanLayouts(adapted.layouts, adapted.zones, nextEvents[index].seat_plan);
+          applySeatMap(nextEvents[index].id, adapted.zones, layouts, adapted.seats);
         }
       }
     } catch (error) {
       setApiReady(false);
       setApiError(error instanceof Error ? error.message : 'Không kết nối được backend');
-      setEvents(EVENTS);
+      setEvents(EVENTS.map(applyLocalBanner));
       setSeatZones(SEAT_ZONES);
       setSeats(SEATS);
       setOrders(ORDERS);
       setOrderItems(ORDER_ITEMS);
+      setAdminOrdersAvailable(null);
     } finally {
       setApiLoading(false);
     }
@@ -208,6 +347,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOrderItems(nextItems);
   }, [apiReady]);
 
+  const refreshAdminOrders = useCallback(async () => {
+    if (!apiReady || !apiClient.token) return;
+
+    try {
+      const response = await apiClient.listAdminOrders();
+      const details = await Promise.allSettled(response.data.map(order => apiClient.getAdminOrder(order.id)));
+      const nextOrders: Order[] = [];
+      const nextItems: OrderItem[] = [];
+
+      response.data.forEach((summary, index) => {
+        const detail = details[index];
+        if (detail.status === 'fulfilled') {
+          nextOrders.push(adaptOrder({
+            ...summary,
+            ...detail.value.order,
+            customer: detail.value.order.customer || summary.customer,
+            user: detail.value.order.user || summary.user,
+            event: detail.value.order.event || summary.event,
+          }));
+          nextItems.push(...detail.value.items.map((item, itemIndex) => adaptOrderItem(item, detail.value.order.id, itemIndex)));
+        } else {
+          nextOrders.push(adaptOrder(summary));
+        }
+      });
+
+      setOrders(nextOrders);
+      setOrderItems(nextItems);
+      setAdminOrdersAvailable(true);
+    } catch (error) {
+      const apiError = error instanceof ApiError ? error : null;
+      setOrders([]);
+      setOrderItems([]);
+      setAdminOrdersAvailable(apiError?.status === 404 || apiError?.status === 403 ? false : null);
+    }
+  }, [apiReady]);
+
   useEffect(() => {
     void refreshEvents();
   }, [refreshEvents]);
@@ -221,12 +396,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (adapted.role === 'customer') {
           return refreshOrders();
         }
+        return refreshAdminOrders();
       })
       .catch(() => apiClient.logout());
-  }, [apiReady, refreshOrders]);
+  }, [apiReady, refreshAdminOrders, refreshOrders]);
 
-  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
-    if (!email || !password) return false;
+  const login = useCallback(async (email: string, password: string): Promise<User | null> => {
+    if (!email || !password) return null;
 
     if (apiReady) {
       try {
@@ -235,8 +411,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setUser(adapted);
         if (adapted.role === 'customer') {
           await refreshOrders();
+        } else {
+          await refreshAdminOrders();
         }
-        return true;
+        return adapted;
       } catch (error) {
         if (!isNetworkError(error)) throw error;
       }
@@ -244,7 +422,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const existing = USERS.find(candidate => candidate.email.toLowerCase() === email.toLowerCase());
     const now = new Date().toISOString();
-    setUser(existing ?? {
+    const fallbackUser = existing ?? {
       id: Date.now(),
       full_name: email.includes('@') ? email.split('@')[0] : 'Khách hàng',
       email,
@@ -255,9 +433,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       phone: '',
       created_at: now,
       updated_at: now,
-    });
-    return true;
-  }, [apiReady, refreshOrders]);
+    };
+    setUser(fallbackUser);
+    return fallbackUser;
+  }, [apiReady, refreshAdminOrders, refreshOrders]);
 
   const logout = useCallback(() => {
     apiClient.logout();
@@ -328,6 +507,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return findSeatZone(seat, seatZones);
   }, [seatZones]);
 
+  const getZoneLayout = useCallback((zoneId: string | number) => {
+    return zoneLayouts.find(layout => layout.zone_id === asId(zoneId));
+  }, [zoneLayouts]);
+
   const getStats = useCallback((eventId: string | number) => {
     const zones = getZones(eventId);
     const eventSeats = getSeats(eventId);
@@ -346,6 +529,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addEvent = useCallback(async (event: Event, zones: SeatZone[], layouts: ZoneLayout[]) => {
+    const localBanner = isInlineImage(event.banner_url) ? event.banner_url : null;
+    const localSeatMap = isInlineImage(event.seat_map_image_url) ? event.seat_map_image_url : null;
+
     if (apiReady) {
       const created = await apiClient.createEvent({
         title: event.title,
@@ -355,7 +541,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         saleStartTime: event.sale_start_time,
         saleEndTime: event.sale_end_time,
         status: event.status,
-        bannerUrl: event.banner_url,
+        bannerUrl: localBanner ? null : event.banner_url,
+        seatPlan: event.seat_plan,
+        seatPlanCode: event.seat_plan,
+        seatMapImageUrl: localSeatMap ? null : event.seat_map_image_url ?? null,
+        queueMode: 'AUTO',
+        queueThreshold: AUTO_QUEUE_THRESHOLD,
       });
 
       for (const zone of zones) {
@@ -370,11 +561,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       await apiClient.generateSeats(created.event.id);
+      if (localBanner) saveLocalBanner(created.event.id, localBanner);
+      if (localSeatMap) saveLocalSeatMap(created.event.id, localSeatMap);
       await refreshEvents();
-      return adaptEvent(created.event);
+      const adaptedFromApi = adaptEvent(created.event);
+      const adapted = applyLocalBanner({
+        ...adaptedFromApi,
+        seat_plan: event.seat_plan,
+        seat_map_image_url: localSeatMap || event.seat_map_image_url,
+        banner_url: localBanner || event.banner_url || adaptedFromApi.banner_url,
+      });
+      setEvents(prev => prev.map(item => item.id === adapted.id ? { ...item, ...adapted } : item));
+      return adapted;
     }
 
-    setEvents(prev => [event, ...prev]);
+    if (localBanner) saveLocalBanner(event.id, localBanner);
+    if (localSeatMap) saveLocalSeatMap(event.id, localSeatMap);
+    setEvents(prev => [applyLocalBanner(event), ...prev]);
     setSeatZones(prev => [...prev, ...zones]);
     setZoneLayouts(prev => [...prev, ...layouts]);
     setSeats(prev => [...prev, ...generateSeats(zones, layouts)]);
@@ -382,34 +585,89 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apiReady, refreshEvents]);
 
   const deleteEventFn = useCallback(async (eventId: number): Promise<boolean> => {
-    if (!apiReady) return false;
-    await apiClient.deleteEvent(eventId);
-    await refreshEvents();
+    if (apiReady) {
+      await apiClient.deleteEvent(eventId);
+      await refreshEvents();
+      return true;
+    }
+
+    const zoneIds = new Set(seatZones.filter(zone => zone.event_id === eventId).map(zone => zone.id));
+    setEvents(prev => prev.filter(event => event.id !== eventId));
+    setSeatZones(prev => prev.filter(zone => zone.event_id !== eventId));
+    setZoneLayouts(prev => prev.filter(layout => !zoneIds.has(layout.zone_id)));
+    setSeats(prev => prev.filter(seat => !zoneIds.has(seat.zone_id)));
+    setOrders(prev => prev.filter(order => order.event_id !== eventId));
+    setQueueEntries(prev => prev.filter(entry => entry.event_id !== eventId));
     return true;
-  }, [apiReady, refreshEvents]);
+  }, [apiReady, refreshEvents, seatZones]);
 
   const publishEventFn = useCallback(async (eventId: number): Promise<boolean> => {
-    if (!apiReady) return false;
-    await apiClient.publishEvent(eventId);
-    await refreshEvents();
+    if (apiReady) {
+      await apiClient.publishEvent(eventId);
+      await refreshEvents();
+      return true;
+    }
+
+    setEvents(prev => prev.map(event =>
+      event.id === eventId ? { ...event, status: 'on_sale', updated_at: new Date().toISOString() } : event
+    ));
     return true;
   }, [apiReady, refreshEvents]);
 
-  const updateEventData = useCallback(async (eventId: number, data: Partial<Event>): Promise<boolean> => {
-    if (!apiReady) return false;
-    await apiClient.updateEvent(eventId, {
-      title: data.title,
-      description: data.description,
-      location: data.location,
-      startTime: data.event_time,
-      saleStartTime: data.sale_start_time,
-      saleEndTime: data.sale_end_time,
-      status: data.status,
-      bannerUrl: data.banner_url,
-    });
-    await refreshEvents();
+  const updateEventData = useCallback(async (
+    eventId: number,
+    data: Partial<Event>,
+    zones?: SeatZone[],
+    layouts?: ZoneLayout[],
+  ): Promise<boolean> => {
+    let apiEventData: Partial<Event> = {};
+    const localBanner = isInlineImage(data.banner_url) ? data.banner_url : null;
+    const localSeatMap = isInlineImage(data.seat_map_image_url) ? data.seat_map_image_url : null;
+    if (localBanner) saveLocalBanner(eventId, localBanner);
+    if (localSeatMap) saveLocalSeatMap(eventId, localSeatMap);
+
+    if (apiReady) {
+      const updated = await apiClient.updateEvent(eventId, {
+        title: data.title,
+        description: data.description,
+        location: data.location,
+        startTime: data.event_time,
+        saleStartTime: data.sale_start_time,
+        saleEndTime: data.sale_end_time,
+        status: data.status,
+        bannerUrl: localBanner ? undefined : data.banner_url,
+        seatPlan: data.seat_plan,
+        seatPlanCode: data.seat_plan,
+        seatMapImageUrl: localSeatMap ? undefined : data.seat_map_image_url ?? null,
+        queueMode: data.seat_plan ? 'AUTO' : undefined,
+        queueThreshold: data.seat_plan ? AUTO_QUEUE_THRESHOLD : undefined,
+      });
+      apiEventData = adaptEvent(updated.event);
+    }
+
+    const updatedAt = new Date().toISOString();
+    setEvents(prev => prev.map(event =>
+      event.id === eventId
+        ? applyLocalBanner({ ...event, ...apiEventData, ...data, updated_at: updatedAt })
+        : event
+    ));
+
+    if (zones && layouts) {
+      const oldZoneIds = new Set(seatZones.filter(zone => zone.event_id === eventId).map(zone => zone.id));
+      const nextZoneIds = new Set(zones.map(zone => zone.id));
+      setSeatZones(prev => [...prev.filter(zone => zone.event_id !== eventId), ...zones]);
+      setZoneLayouts(prev => [
+        ...prev.filter(layout => !oldZoneIds.has(layout.zone_id) && !nextZoneIds.has(layout.zone_id)),
+        ...layouts,
+      ]);
+      setSeats(prev => [
+        ...prev.filter(seat => !oldZoneIds.has(seat.zone_id) && !nextZoneIds.has(seat.zone_id)),
+        ...generateSeats(zones, layouts),
+      ]);
+    }
+
     return true;
-  }, [apiReady, refreshEvents]);
+  }, [apiReady, seatZones]);
 
   const selectSeat = useCallback((eventId: string | number, seatId: number) => {
     const numericEventId = asId(eventId);
@@ -556,6 +814,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { order };
   }, [addLog, apiReady, getSeats, orderItems, orders, seatZones, selectedSeatIds, user]);
 
+  const cancelHeldSeats = useCallback(async (eventId: string | number, orderIdInput?: number | null): Promise<boolean> => {
+    const numericEventId = asId(eventId);
+    const orderId = orderIdInput ?? activeOrderId;
+    if (!orderId || !user) return false;
+
+    const currentItems = orderItems.filter(item => item.order_id === orderId);
+    const releaseSeatIds = new Set(currentItems.map(item => item.seat_id));
+    const now = new Date().toISOString();
+
+    if (apiReady) {
+      const result = await apiClient.cancelHold(orderId);
+      const cancelled = adaptOrder(result.order);
+      const apiSeatIds = new Set(result.items.map(item => item.seatId));
+      setOrders(prev => prev.map(order => order.id === cancelled.id ? cancelled : order));
+      setOrderItems(prev => [
+        ...prev.filter(item => item.order_id !== cancelled.id),
+        ...result.items.map((item, index) => adaptOrderItem(item, cancelled.id, index)),
+      ]);
+      setSeats(prev => prev.map(seat => (
+        apiSeatIds.has(seat.id) || releaseSeatIds.has(seat.id)
+          ? { ...seat, status: 'available' as SeatStatus, locked_by: undefined, lock_expires_at: undefined, updated_at: now }
+          : seat
+      )));
+      setSelectedSeatIds(prev => ({ ...prev, [cancelled.event_id]: new Set<number>() }));
+      setHoldExpiry(null);
+      setActiveOrderId(null);
+      await refreshSeatMap(cancelled.event_id);
+      await refreshOrders();
+      return true;
+    }
+
+    setOrders(prev => prev.map(order => (
+      order.id === orderId ? { ...order, status: 'cancelled' as const, updated_at: now } : order
+    )));
+    setSeats(prev => prev.map(seat => (
+      releaseSeatIds.has(seat.id)
+        ? { ...seat, status: 'available' as SeatStatus, locked_by: undefined, lock_expires_at: undefined, updated_at: now }
+        : seat
+    )));
+    currentItems.forEach(item => addLog({
+      seat_id: item.seat_id,
+      user_id: user.id,
+      action: 'release',
+      reason: 'User cancelled held seats',
+    }));
+    setSelectedSeatIds(prev => ({ ...prev, [numericEventId]: new Set<number>() }));
+    setHoldExpiry(null);
+    setActiveOrderId(null);
+    return true;
+  }, [activeOrderId, addLog, apiReady, orderItems, refreshOrders, refreshSeatMap, user]);
+
   const confirmOrder = useCallback(async (orderId: number, paymentMethod: PaymentMethod): Promise<Order | null> => {
     const order = orders.find(item => item.id === orderId);
     if (!order || !user) return null;
@@ -675,6 +984,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     apiReady,
     apiLoading,
     apiError,
+    adminOrdersAvailable,
     login,
     logout,
     register,
@@ -690,6 +1000,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     getZones,
     getSeats,
     getSeatZone,
+    getZoneLayout,
     getStats,
     addEvent,
     deleteEvent: deleteEventFn,
@@ -698,6 +1009,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshEvents,
     refreshSeatMap,
     refreshOrders,
+    refreshAdminOrders,
     selectSeat,
     deselectSeat,
     getUserSeats,
@@ -705,6 +1017,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     holdExpiry,
     setHoldExpiry,
     holdSeats,
+    cancelHeldSeats,
     activeOrderId,
     confirmOrder,
     currentQueueEntry,
@@ -717,6 +1030,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     apiReady,
     apiLoading,
     apiError,
+    adminOrdersAvailable,
     login,
     logout,
     register,
@@ -732,6 +1046,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     getZones,
     getSeats,
     getSeatZone,
+    getZoneLayout,
     getStats,
     addEvent,
     deleteEventFn,
@@ -740,12 +1055,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshEvents,
     refreshSeatMap,
     refreshOrders,
+    refreshAdminOrders,
     selectSeat,
     deselectSeat,
     getUserSeats,
     clearUserSeats,
     holdExpiry,
     holdSeats,
+    cancelHeldSeats,
     activeOrderId,
     confirmOrder,
     currentQueueEntry,

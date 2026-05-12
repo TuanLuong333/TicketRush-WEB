@@ -7,6 +7,7 @@ import type {
   ApiUser,
   ApiZone,
 } from './client';
+import { AUTO_QUEUE_THRESHOLD } from '../data/types';
 import type {
   Event,
   EventStats,
@@ -23,6 +24,20 @@ import type {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function adaptSeatPlan(event: ApiEvent) {
+  const explicitSeatPlan = event.seatPlan || event.seat_plan || event.seatPlanCode || event.seat_plan_code;
+  if (explicitSeatPlan) return explicitSeatPlan;
+
+  const queueMode = String(event.queueMode ?? event.queue_mode ?? '').toUpperCase();
+  const queueEnabled = Boolean(event.queueEnabled ?? event.queue_enabled);
+  if (queueMode === 'AUTO' || queueEnabled) {
+    const threshold = Number(event.queueThreshold ?? event.queue_threshold ?? AUTO_QUEUE_THRESHOLD);
+    return `seat-map|queue:${Number.isFinite(threshold) && threshold > 0 ? threshold : AUTO_QUEUE_THRESHOLD}`;
+  }
+
+  return 'seat-map';
 }
 
 export function normalizeRole(role?: string): User['role'] {
@@ -94,7 +109,8 @@ export function adaptEvent(event: ApiEvent): Event {
     description: event.description || '',
     location: event.location,
     event_time: start,
-    seat_plan: 'seat-map',
+    seat_plan: adaptSeatPlan(event),
+    seat_map_image_url: event.seatMapImageUrl || event.seat_map_image_url || undefined,
     sale_start_time: event.saleStartTime || start,
     sale_end_time: event.saleEndTime || event.endTime || start,
     status: normalizeEventStatus(event.status),
@@ -150,13 +166,15 @@ export function adaptSeatMap(eventId: number, zones: ApiZone[]) {
   for (const zone of zones) {
     for (const row of zone.rows || []) {
       for (const seat of row.seats) {
+        const status = normalizeSeatStatus(seat.status);
+        const lockExpired = status === 'locked' && seat.lockedUntil && new Date(seat.lockedUntil).getTime() <= Date.now();
         seats.push({
           id: seat.id,
           zone_id: zone.id,
           row_label: row.rowLabel,
           seat_number: seat.seatNumber,
-          status: normalizeSeatStatus(seat.status),
-          lock_expires_at: seat.lockedUntil || undefined,
+          status: lockExpired ? 'available' : status,
+          lock_expires_at: lockExpired ? undefined : seat.lockedUntil || undefined,
           created_at: nowIso(),
           updated_at: nowIso(),
         });
@@ -169,13 +187,18 @@ export function adaptSeatMap(eventId: number, zones: ApiZone[]) {
 
 export function adaptOrder(order: ApiOrder, paymentMethod?: Order['payment_method']): Order {
   const createdAt = order.createdAt || nowIso();
+  const customer = order.customer || order.user;
   return {
     id: order.id,
     order_code: order.orderCode,
     user_id: order.userId,
+    customer_name: customer?.fullName,
+    customer_email: customer?.email,
+    customer_phone: customer?.phone || undefined,
     event_id: order.eventId,
     status: normalizeOrderStatus(order.status),
     total_amount: Number(order.totalAmount || 0),
+    item_count: Number(order.itemCount ?? order.item_count ?? 0),
     expires_at: order.expiresAt,
     paid_at: order.paidAt || undefined,
     payment_method: paymentMethod,
