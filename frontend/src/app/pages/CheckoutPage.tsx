@@ -19,7 +19,8 @@ export default function CheckoutPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { language } = usePreferences();
-  const eventId = location.state?.eventId as number | undefined;
+  const routeEventId = location.state?.eventId as number | undefined;
+  const routeOrderId = location.state?.orderId as number | undefined;
   const {
     getEvent,
     getUserSeats,
@@ -37,11 +38,21 @@ export default function CheckoutPage() {
     apiReady,
   } = useApp();
 
-  const orderId = (location.state?.orderId as number | undefined) ?? activeOrderId;
+  const fallbackPendingOrder = orders
+    .filter(order => (
+      order.status === 'pending' &&
+      (!routeEventId || order.event_id === routeEventId) &&
+      new Date(order.expires_at).getTime() > Date.now()
+    ))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  const checkoutOrder = orders.find(order => order.id === routeOrderId)
+    ?? orders.find(order => order.id === activeOrderId)
+    ?? fallbackPendingOrder;
+  const orderId = checkoutOrder?.id ?? routeOrderId ?? activeOrderId;
+  const eventId = routeEventId ?? checkoutOrder?.event_id;
   const event = getEvent(eventId ?? 0);
   const userSeats = getUserSeats(eventId ?? 0);
-  const checkoutOrder = orders.find(order => order.id === orderId);
-  const checkoutItems = orderItems.filter(item => item.order_id === orderId);
+  const checkoutItems = orderId ? orderItems.filter(item => item.order_id === orderId) : [];
   const checkoutSeats = userSeats.length > 0
     ? userSeats
     : checkoutItems.map(item => seats.find(seat => seat.id === item.seat_id)).filter((seat): seat is Seat => Boolean(seat));

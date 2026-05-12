@@ -132,6 +132,56 @@ const RESIZE_HANDLES: Array<{ handle: ZoneResizeHandle; className: string; title
   { handle: 'nw', className: '-top-1.5 -left-1.5 cursor-nwse-resize', title: 'Resize top left' },
 ];
 
+function normalizeColor(value?: string): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function componentToHex(value: number): string {
+  return Math.round(value).toString(16).padStart(2, '0');
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+  const match = lightness - chroma / 2;
+  const [red, green, blue] = hue < 60
+    ? [chroma, x, 0]
+    : hue < 120
+      ? [x, chroma, 0]
+      : hue < 180
+        ? [0, chroma, x]
+        : hue < 240
+          ? [0, x, chroma]
+          : hue < 300
+            ? [x, 0, chroma]
+            : [chroma, 0, x];
+
+  return `#${componentToHex((red + match) * 255)}${componentToHex((green + match) * 255)}${componentToHex((blue + match) * 255)}`.toUpperCase();
+}
+
+function generatedZoneColor(index: number): string {
+  const hue = (24 + index * 137.508) % 360;
+  return hslToHex(hue, 0.74, 0.52);
+}
+
+function getNextZoneColor(existingZones: Array<Pick<ZoneForm, 'color'>>): string {
+  const usedColors = new Set(existingZones.map(zone => normalizeColor(zone.color)).filter(Boolean));
+  const unusedPreset = COLORS.find(color => !usedColors.has(normalizeColor(color)));
+  if (unusedPreset) return unusedPreset;
+
+  for (let index = 0; index < 360; index += 1) {
+    const color = generatedZoneColor(existingZones.length + index);
+    if (!usedColors.has(normalizeColor(color))) return color;
+  }
+
+  return generatedZoneColor(Date.now() % 360);
+}
+
+function hasDuplicateZoneColors(zones: Array<Pick<ZoneForm, 'color'>>): boolean {
+  const colors = zones.map(zone => normalizeColor(zone.color)).filter(Boolean);
+  return new Set(colors).size !== colors.length;
+}
+
 function toLocalInput(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -412,7 +462,17 @@ export default function AdminCreateEventPage() {
 
   const updateForm = (key: keyof EventFormState, value: string | boolean) => setForm(prev => ({ ...prev, [key]: value }));
   const updateZone = (key: string, field: ZoneFormField, value: string | number) => {
-    setZones(prev => prev.map(zone => zone.key === key ? { ...zone, [field]: value } : zone));
+    setZones(prev => {
+      if (field === 'color') {
+        const nextColor = normalizeColor(String(value));
+        const duplicated = prev.some(zone => zone.key !== key && normalizeColor(zone.color) === nextColor);
+        if (duplicated) {
+          toast.error(language === 'en' ? 'Two zones cannot use the same color' : 'Hai khu ghế không được chọn cùng màu');
+          return prev;
+        }
+      }
+      return prev.map(zone => zone.key === key ? { ...zone, [field]: value } : zone);
+    });
   };
 
   const handleImageFile = (field: 'banner_url' | 'seat_map_image_url') => (event: ChangeEvent<HTMLInputElement>) => {
@@ -442,7 +502,7 @@ export default function AdminCreateEventPage() {
         price: 500000,
         rows: 4,
         cols: 10,
-        color: COLORS[prev.length % COLORS.length],
+        color: getNextZoneColor(prev),
       }, prev.length, prev.length + 1),
     ]);
     setSelectedZoneKey(key);
@@ -928,6 +988,10 @@ export default function AdminCreateEventPage() {
     }
     if (new Set(validZones.map(zone => zone.name.toLowerCase())).size !== validZones.length) {
       toast.error(language === 'en' ? 'Zone names must be unique' : 'Tên khu ghế không được trùng');
+      return;
+    }
+    if (hasDuplicateZoneColors(validZones)) {
+      toast.error(language === 'en' ? 'Zone colors must be unique' : 'Màu khu ghế không được trùng');
       return;
     }
 
