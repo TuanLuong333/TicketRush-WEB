@@ -23,10 +23,10 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const ok = await login(email, password);
-      if (ok) {
+      const signedInUser = await login(email, password);
+      if (signedInUser) {
         toast.success(language === 'en' ? 'Signed in successfully' : 'Đăng nhập thành công!');
-        navigate(email.includes('admin') ? '/admin' : '/');
+        navigate(signedInUser.role === 'admin' ? '/admin' : '/');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : (language === 'en' ? 'Sign in failed' : 'Đăng nhập thất bại'));

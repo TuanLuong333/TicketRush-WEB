@@ -29,6 +29,7 @@ export interface Event {
   location: string;
   event_time: string;
   seat_plan: string;
+  seat_map_image_url?: string;
   sale_start_time: string;
   sale_end_time: string;
   status: EventStatus;
@@ -65,9 +66,13 @@ export interface Order {
   id: number;
   order_code: string;
   user_id: number;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
   event_id: number;
   status: OrderStatus;
   total_amount: number;
+  item_count?: number;
   expires_at: string;
   paid_at?: string;
   payment_method?: PaymentMethod;
@@ -109,6 +114,11 @@ export interface ZoneLayout {
   rows: number;
   cols: number;
   color: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
 }
 
 export interface ZoneStats {
@@ -144,7 +154,14 @@ export interface AdminRevenuePoint {
   tickets: number;
 }
 
+export interface AudienceStatistics {
+  gender: Array<{ gender: string; total: number }>;
+  age: Array<{ ageGroup: string; total: number }>;
+}
+
 export const SERVICE_FEE_RATE = 0.05;
+export const AUTO_QUEUE_THRESHOLD = 50;
+export const AUTO_QUEUE_MARKER = `queue:${AUTO_QUEUE_THRESHOLD}`;
 
 export const STATUS_LABELS: Record<EventStatus, string> = {
   draft: 'Sắp mở bán',

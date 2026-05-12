@@ -19,11 +19,13 @@ export default function SeatSelectionPage() {
     getZones,
     getSeats,
     getSeatZone,
+    getZoneLayout,
     getUserSeats,
     selectSeat,
     deselectSeat,
     clearUserSeats,
     holdSeats,
+    cancelHeldSeats,
     holdExpiry,
     setHoldExpiry,
     activeOrderId,
@@ -35,14 +37,34 @@ export default function SeatSelectionPage() {
   const eventId = event?.id ?? 0;
   const zones = getZones(eventId);
   const seats = getSeats(eventId);
+  const layouts = zones.map(zone => getZoneLayout(zone.id));
   const userSeats = getUserSeats(eventId);
   const selectedCount = userSeats.filter(seat => seat.status === 'selected').length;
   const lockedCount = userSeats.filter(seat => seat.status === 'locked').length;
   const canCheckout = Boolean(holdExpiry && activeOrderId) && userSeats.length > 0 && lockedCount === userSeats.length;
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [cancellingHold, setCancellingHold] = useState(false);
 
   useEffect(() => {
-    if (eventId) void refreshSeatMap(eventId);
+    if (!eventId) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        await refreshSeatMap(eventId);
+      } catch {
+        // Keep the current map visible; the next poll can recover when backend is reachable.
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => {
+      if (active) void refresh();
+    }, 3000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [eventId, refreshSeatMap]);
 
   useEffect(() => {
@@ -110,8 +132,31 @@ export default function SeatSelectionPage() {
     }
   };
 
-  const handleBack = () => {
-    clearUserSeats(event.id);
+  const handleCancelHold = async () => {
+    if (!activeOrderId) return false;
+    setCancellingHold(true);
+    try {
+      const cancelled = await cancelHeldSeats(event.id, activeOrderId);
+      if (cancelled) {
+        setSecondsLeft(null);
+        toast.success(language === 'en' ? 'Held seats cancelled' : 'Đã hủy giữ ghế');
+      }
+      return cancelled;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : (language === 'en' ? 'Could not cancel held seats' : 'Không thể hủy giữ ghế'));
+      return false;
+    } finally {
+      setCancellingHold(false);
+    }
+  };
+
+  const handleBack = async () => {
+    if (holdExpiry && activeOrderId) {
+      const cancelled = await handleCancelHold();
+      if (!cancelled) return;
+    } else {
+      clearUserSeats(event.id);
+    }
     navigate(`/events/${event.id}`);
   };
 
@@ -154,7 +199,7 @@ export default function SeatSelectionPage() {
               {language === 'en' ? 'Selected' : 'Đã chọn'} {selectedCount}/{MAX_SELECT}
             </span>
           </div>
-          <SeatMap zones={zones} seats={seats} onSeatClick={handleSeatClick} maxSelect={MAX_SELECT} />
+          <SeatMap zones={zones} seats={seats} layouts={layouts} seatMapImageUrl={event.seat_map_image_url} onSeatClick={handleSeatClick} maxSelect={MAX_SELECT} />
         </section>
 
         <aside>
@@ -204,18 +249,29 @@ export default function SeatSelectionPage() {
                       <Clock size={16} /> {language === 'en' ? 'Hold seats' : 'Giữ ghế'}
                     </button>
                   ) : holdExpiry ? (
-                    <div className="mb-2 flex items-center gap-2 rounded-md p-3 text-sm font-bold" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>
-                      <CheckCircle2 size={16} /> {language === 'en' ? 'Seats are held' : 'Ghế đã được giữ'}
-                    </div>
+                    <>
+                      <div className="mb-2 flex items-center gap-2 rounded-md p-3 text-sm font-bold" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>
+                        <CheckCircle2 size={16} /> {language === 'en' ? 'Seats are held' : 'Ghế đã được giữ'}
+                      </div>
+                      <button
+                        onClick={handleCancelHold}
+                        disabled={cancellingHold}
+                        className="mb-2 flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 font-black"
+                        style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', opacity: cancellingHold ? 0.72 : 1 }}
+                      >
+                        {cancellingHold ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" /> : <Trash2 size={16} />}
+                        {language === 'en' ? 'Cancel hold' : 'Hủy giữ ghế'}
+                      </button>
+                    </>
                   ) : null}
 
                   <button
                     onClick={() => navigate('/checkout', { state: { eventId: event.id, orderId: activeOrderId } })}
-                    disabled={!canCheckout}
+                    disabled={!canCheckout || cancellingHold}
                     className="w-full rounded-md px-4 py-3 font-black text-white"
                     style={{
-                      background: canCheckout ? '#F97316' : '#CBD5E1',
-                      cursor: canCheckout ? 'pointer' : 'not-allowed',
+                      background: canCheckout && !cancellingHold ? '#F97316' : '#CBD5E1',
+                      cursor: canCheckout && !cancellingHold ? 'pointer' : 'not-allowed',
                     }}
                   >
                     {language === 'en' ? 'Checkout' : 'Thanh toán'}
