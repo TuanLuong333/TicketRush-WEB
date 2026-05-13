@@ -7,6 +7,8 @@ const router = express.Router();
 
 router.use(authenticate, requireAdmin);
 
+router.get('/orders', asyncHandler(adminController.listOrders));
+router.get('/orders/:orderId', asyncHandler(adminController.getOrder));
 router.post('/events', asyncHandler(adminController.createEvent));
 router.put('/events/:eventId', asyncHandler(adminController.updateEvent));
 router.delete('/events/:eventId', asyncHandler(adminController.deleteEvent));

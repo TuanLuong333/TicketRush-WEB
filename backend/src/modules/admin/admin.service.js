@@ -2,7 +2,226 @@ const pool = require('../../config/database');
 const { AppError } = require('../../utils/errors');
 const { toPositiveInteger } = require('../../utils/ids');
 const { EVENT_STATUSES, formatEvent, formatStats, formatZone } = require('../events/event.service');
-const { releaseExpiredLocks } = require('../orders/order.service');
+const { formatOrderItem, releaseExpiredLocks } = require('../orders/order.service');
+
+const ORDER_STATUSES = new Set(['PENDING', 'PAID', 'CANCELLED', 'EXPIRED']);
+
+function formatOrder(row) {
+  return {
+    id: row.id,
+    orderCode: row.orderCode,
+    userId: row.userId,
+    eventId: row.eventId,
+    event: {
+      id: row.eventId,
+      title: row.eventTitle
+    },
+    user: {
+      id: row.userId,
+      fullName: row.userFullName,
+      email: row.userEmail,
+      phone: row.userPhone
+    },
+    status: row.status,
+    totalAmount: Number(row.totalAmount || 0),
+    itemCount: Number(row.itemCount || 0),
+    expiresAt: row.expiresAt,
+    paidAt: row.paidAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+async function listOrders(query = {}) {
+  await releaseExpiredLocks();
+
+  const page = Number.parseInt(query.page || '1', 10);
+  const limit = Number.parseInt(query.limit || '20', 10);
+
+  if (!Number.isInteger(page) || page <= 0) {
+    throw new AppError('page phải là số nguyên dương', 400);
+  }
+
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
+    throw new AppError('limit phải là số nguyên dương và không vượt quá 100', 400);
+  }
+
+  const where = [];
+  const params = [];
+
+  if (query.eventId) {
+    const eventId = toPositiveInteger(query.eventId, 'eventId');
+    where.push('o.event_id = ?');
+    params.push(eventId);
+  }
+
+  if (query.userId) {
+    const userId = toPositiveInteger(query.userId, 'userId');
+    where.push('o.user_id = ?');
+    params.push(userId);
+  }
+
+  if (query.status) {
+    const status = String(query.status).trim().toUpperCase();
+
+    if (!ORDER_STATUSES.has(status)) {
+      throw new AppError('Trạng thái đơn hàng không hợp lệ', 400);
+    }
+
+    where.push('o.status = ?');
+    params.push(status);
+  }
+
+  if (query.search) {
+    const keyword = `%${String(query.search).trim()}%`;
+    where.push('(o.order_code LIKE ? OR u.full_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ? OR e.title LIKE ?)');
+    params.push(keyword, keyword, keyword, keyword, keyword);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const offset = (page - 1) * limit;
+
+  const [countRows] = await pool.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM orders o
+    JOIN users u ON u.id = o.user_id
+    JOIN events e ON e.id = o.event_id
+    ${whereSql}
+    `,
+    params
+  );
+
+  const [rows] = await pool.query(
+    `
+    SELECT
+      o.id,
+      o.order_code AS orderCode,
+      o.event_id AS eventId,
+      e.title AS eventTitle,
+      o.user_id AS userId,
+      u.full_name AS userFullName,
+      u.email AS userEmail,
+      u.phone AS userPhone,
+      o.status,
+      o.total_amount AS totalAmount,
+      o.expires_at AS expiresAt,
+      o.paid_at AS paidAt,
+      o.created_at AS createdAt,
+      o.updated_at AS updatedAt,
+      COUNT(oi.id) AS itemCount
+    FROM orders o
+    JOIN users u ON u.id = o.user_id
+    JOIN events e ON e.id = o.event_id
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    ${whereSql}
+    GROUP BY
+      o.id,
+      o.order_code,
+      o.event_id,
+      e.title,
+      o.user_id,
+      u.full_name,
+      u.email,
+      u.phone,
+      o.status,
+      o.total_amount,
+      o.expires_at,
+      o.paid_at,
+      o.created_at,
+      o.updated_at
+    ORDER BY o.created_at DESC
+    LIMIT ? OFFSET ?
+    `,
+    [...params, limit, offset]
+  );
+
+  const total = Number(countRows[0].total || 0);
+
+  return {
+    data: rows.map(formatOrder),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
+  };
+}
+
+async function getOrder(orderIdInput) {
+  await releaseExpiredLocks();
+  const orderId = toPositiveInteger(orderIdInput, 'orderId');
+
+  const [orders] = await pool.query(
+    `
+    SELECT
+      o.id,
+      o.order_code AS orderCode,
+      o.event_id AS eventId,
+      e.title AS eventTitle,
+      o.user_id AS userId,
+      u.full_name AS userFullName,
+      u.email AS userEmail,
+      u.phone AS userPhone,
+      o.status,
+      o.total_amount AS totalAmount,
+      o.expires_at AS expiresAt,
+      o.paid_at AS paidAt,
+      o.created_at AS createdAt,
+      o.updated_at AS updatedAt,
+      COUNT(oi.id) AS itemCount
+    FROM orders o
+    JOIN users u ON u.id = o.user_id
+    JOIN events e ON e.id = o.event_id
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.id = ?
+    GROUP BY
+      o.id,
+      o.order_code,
+      o.event_id,
+      e.title,
+      o.user_id,
+      u.full_name,
+      u.email,
+      u.phone,
+      o.status,
+      o.total_amount,
+      o.expires_at,
+      o.paid_at,
+      o.created_at,
+      o.updated_at
+    LIMIT 1
+    `,
+    [orderId]
+  );
+
+  if (!orders.length) {
+    throw new AppError('Không tìm thấy đơn hàng', 404);
+  }
+
+  const [items] = await pool.query(
+    `
+    SELECT
+      oi.*,
+      s.seat_code,
+      s.row_label,
+      s.seat_number,
+      z.name AS zone_name
+    FROM order_items oi
+    JOIN seats s ON s.id = oi.seat_id
+    JOIN seat_zones z ON z.id = s.zone_id
+    WHERE oi.order_id = ?
+    ORDER BY z.id ASC, CAST(SUBSTRING(s.row_label, 2) AS UNSIGNED) ASC, s.seat_number ASC
+    `,
+    [orderId]
+  );
+
+  return {
+    order: formatOrder(orders[0]),
+    items: items.map(formatOrderItem)
+  };
+}
 
 function requiredString(value, fieldName) {
   const text = String(value || '').trim();
@@ -343,5 +562,7 @@ module.exports = {
   listZones,
   generateSeats,
   getDashboard,
-  getAudienceStatistics
+  getAudienceStatistics,
+  listOrders,
+  getOrder
 };

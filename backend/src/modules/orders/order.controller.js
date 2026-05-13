@@ -15,8 +15,14 @@ async function confirmPayment(req, res) {
   res.json({ success: true, ...result });
 }
 
+async function cancelHold(req, res) {
+  const result = await orderService.cancelHold(req.user.id, req.params.orderId);
+  res.json({ success: true, ...result });
+}
+
 module.exports = {
   listOrders,
   getOrder,
-  confirmPayment
+  confirmPayment,
+  cancelHold
 };

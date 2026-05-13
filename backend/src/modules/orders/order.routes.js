@@ -9,6 +9,7 @@ router.use(authenticate, requireCustomer);
 
 router.get('/', asyncHandler(orderController.listOrders));
 router.get('/:orderId', asyncHandler(orderController.getOrder));
+router.post('/:orderId/cancel-hold', asyncHandler(orderController.cancelHold));
 router.post('/:orderId/confirm-payment', asyncHandler(orderController.confirmPayment));
 
 module.exports = router;

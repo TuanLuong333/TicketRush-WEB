@@ -328,6 +328,64 @@ async function confirmPayment(userId, orderId) {
   }
 }
 
+async function cancelHold(userId, orderId) {
+  const id = toPositiveInteger(orderId, 'orderId');
+  const conn = await pool.getConnection();
+  let committed = false;
+
+  try {
+    await conn.beginTransaction();
+
+    const [orders] = await conn.query(
+      `
+      SELECT *
+      FROM orders
+      WHERE id = ?
+        AND user_id = ?
+      FOR UPDATE
+      `,
+      [id, userId]
+    );
+
+    if (!orders.length) {
+      throw new AppError('Không tìm thấy đơn hàng', 404);
+    }
+
+    const order = orders[0];
+    if (order.status !== 'PENDING') {
+      throw new AppError('Đơn hàng không còn ở trạng thái giữ ghế', 409);
+    }
+
+    if (new Date(order.expires_at).getTime() < Date.now()) {
+      await releaseOrderSeats(conn, id, userId, 'Order expired before hold cancellation');
+      await conn.query('UPDATE orders SET status = \'EXPIRED\' WHERE id = ?', [id]);
+      await conn.commit();
+      committed = true;
+      throw new AppError('Đơn hàng đã hết hạn', 409);
+    }
+
+    await releaseOrderSeats(conn, id, userId, 'Hold cancelled by customer');
+    await conn.query(
+      `
+      UPDATE orders
+      SET status = 'CANCELLED'
+      WHERE id = ?
+      `,
+      [id]
+    );
+
+    await conn.commit();
+    committed = true;
+
+    return getOrder(userId, id);
+  } catch (err) {
+    if (!committed) await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 module.exports = {
   formatOrder,
   formatOrderItem,
@@ -336,5 +394,6 @@ module.exports = {
   releaseOrderSeats,
   listOrders,
   getOrder,
-  confirmPayment
+  confirmPayment,
+  cancelHold
 };

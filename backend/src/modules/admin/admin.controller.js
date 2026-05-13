@@ -1,5 +1,15 @@
 const adminService = require('./admin.service');
 
+async function listOrders(req, res) {
+  const result = await adminService.listOrders(req.query);
+  res.json(result);
+}
+
+async function getOrder(req, res) {
+  const result = await adminService.getOrder(req.params.orderId);
+  res.json(result);
+}
+
 async function createEvent(req, res) {
   const event = await adminService.createEvent(req.user.id, req.body);
   res.status(201).json({ event });
@@ -54,5 +64,7 @@ module.exports = {
   listZones,
   generateSeats,
   getDashboard,
-  getAudienceStatistics
+  getAudienceStatistics,
+  listOrders,
+  getOrder
 };
