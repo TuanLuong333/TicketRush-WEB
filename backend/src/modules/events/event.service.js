@@ -17,6 +17,7 @@ function formatEvent(row) {
     saleEndTime: row.sale_end_time,
     status: row.status,
     bannerUrl: row.banner_url,
+    seatingChart: row.seating_chart,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -140,7 +141,7 @@ async function getSeatMap(eventId) {
   const id = toPositiveInteger(eventId, 'eventId');
 
   const [events] = await pool.query(
-    'SELECT id, title, status, location, start_time FROM events WHERE id = ? LIMIT 1',
+    'SELECT id, title, status, location, start_time, seating_chart FROM events WHERE id = ? LIMIT 1',
     [id]
   );
   if (!events.length) {
@@ -181,7 +182,8 @@ async function getSeatMap(eventId) {
       title: events[0].title,
       status: events[0].status,
       location: events[0].location,
-      startTime: events[0].start_time
+      startTime: events[0].start_time,
+      seatingChart: events[0].seating_chart
     },
     zones: zones.map((zone) => {
       const rows = seatsByZone.get(zone.id) || new Map();

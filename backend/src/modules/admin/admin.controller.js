@@ -1,4 +1,20 @@
 const adminService = require('./admin.service');
+const { eventImageUrl } = require('./event-upload.middleware');
+
+function firstFile(files, fieldName) {
+  return files && files[fieldName] && files[fieldName][0];
+}
+
+function buildEventPayload(req) {
+  const payload = { ...req.body };
+  const banner = firstFile(req.files, 'banner');
+  const seatingChart = firstFile(req.files, 'seatingChart') || firstFile(req.files, 'seating_chart');
+
+  if (banner) payload.bannerUrl = eventImageUrl(banner);
+  if (seatingChart) payload.seatingChart = eventImageUrl(seatingChart);
+
+  return payload;
+}
 
 async function listOrders(req, res) {
   const result = await adminService.listOrders(req.query);
@@ -11,12 +27,12 @@ async function getOrder(req, res) {
 }
 
 async function createEvent(req, res) {
-  const event = await adminService.createEvent(req.user.id, req.body);
+  const event = await adminService.createEvent(req.user.id, buildEventPayload(req));
   res.status(201).json({ event });
 }
 
 async function updateEvent(req, res) {
-  const event = await adminService.updateEvent(req.params.eventId, req.body);
+  const event = await adminService.updateEvent(req.params.eventId, buildEventPayload(req));
   res.json({ event });
 }
 

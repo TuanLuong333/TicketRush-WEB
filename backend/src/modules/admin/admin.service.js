@@ -275,8 +275,8 @@ async function createEvent(adminId, payload) {
   const [result] = await pool.query(
     `
     INSERT INTO events
-      (title, description, location, start_time, end_time, sale_start_time, sale_end_time, status, banner_url, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, description, location, start_time, end_time, sale_start_time, sale_end_time, status, banner_url, seating_chart, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       title,
@@ -288,6 +288,7 @@ async function createEvent(adminId, payload) {
       optionalDate(pick(payload, 'saleEndTime', 'sale_end_time')),
       status,
       pick(payload, 'bannerUrl', 'banner_url') || null,
+      pick(payload, 'seatingChart', 'seating_chart') || null,
       adminId
     ]
   );
@@ -304,6 +305,7 @@ async function updateEvent(eventIdInput, payload) {
   if (normalizedPayload.saleStartTime === undefined && payload.sale_start_time !== undefined) normalizedPayload.saleStartTime = payload.sale_start_time;
   if (normalizedPayload.saleEndTime === undefined && payload.sale_end_time !== undefined) normalizedPayload.saleEndTime = payload.sale_end_time;
   if (normalizedPayload.bannerUrl === undefined && payload.banner_url !== undefined) normalizedPayload.bannerUrl = payload.banner_url;
+  if (normalizedPayload.seatingChart === undefined && payload.seating_chart !== undefined) normalizedPayload.seatingChart = payload.seating_chart;
   const fields = [];
   const params = [];
   const mapping = {
@@ -322,7 +324,8 @@ async function updateEvent(eventIdInput, payload) {
       if (!EVENT_STATUSES.has(value)) throw new AppError('Trạng thái sự kiện không hợp lệ', 400);
       return value;
     }],
-    bannerUrl: ['banner_url', (value) => value || null]
+    bannerUrl: ['banner_url', (value) => value || null],
+    seatingChart: ['seating_chart', (value) => value || null]
   };
 
   for (const [inputKey, [column, normalize]] of Object.entries(mapping)) {
