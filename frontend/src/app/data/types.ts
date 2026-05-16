@@ -95,6 +95,8 @@ export interface QueueEntry {
   queue_token: string;
   status: QueueEntryStatus;
   position_number: number;
+  people_ahead?: number;
+  can_enter?: boolean;
   activated_at?: string;
   expires_at?: string;
   created_at: string;
@@ -160,7 +162,9 @@ export interface AudienceStatistics {
 }
 
 export const SERVICE_FEE_RATE = 0.05;
-export const AUTO_QUEUE_THRESHOLD = 50;
+// Queue is temporarily disabled on the frontend. Set this back to true to re-enable queue logic.
+export const QUEUE_FEATURE_ENABLED = false;
+export const AUTO_QUEUE_THRESHOLD = 1;
 export const AUTO_QUEUE_MARKER = `queue:${AUTO_QUEUE_THRESHOLD}`;
 
 export const STATUS_LABELS: Record<EventStatus, string> = {

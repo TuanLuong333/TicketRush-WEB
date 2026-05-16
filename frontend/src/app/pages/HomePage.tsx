@@ -8,11 +8,11 @@ import { formatDateTime, formatPrice, getAutoEventStatus, getEventCity, isSaleOp
 import { useClockTick } from '../hooks/useClockTick';
 
 export default function HomePage() {
-  const { events, getStats } = useApp();
+  const { events, getStats, getQueueLoad } = useApp();
   const { language, t } = usePreferences();
   const now = useClockTick();
   const openEvents = events.filter(event => getAutoEventStatus(event, getStats(event.id), now) === 'on_sale');
-  const queueEvents = openEvents.filter(event => requiresQueue(event, getStats(event.id)));
+  const queueEvents = openEvents.filter(event => requiresQueue(event, getStats(event.id), getQueueLoad(event.id)));
   const availableSeats = openEvents.reduce((sum, event) => sum + getStats(event.id).available, 0);
 
   const heroEvents = openEvents.slice(0, 5);
@@ -69,7 +69,7 @@ export default function HomePage() {
                     <div className="flex flex-col justify-center">
                       <div className="mb-4 flex flex-wrap gap-2">
                         <span className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-bold uppercase" style={{ background: '#F97316', color: '#fff' }}>
-                          <Timer size={13} /> {requiresQueue(event, stats) ? t('queueEnabled') : t('saleOpen')}
+                          <Timer size={13} /> {requiresQueue(event, stats, getQueueLoad(event.id)) ? t('queueEnabled') : t('saleOpen')}
                         </span>
                       </div>
 
@@ -132,7 +132,7 @@ export default function HomePage() {
                             </div>
                           ))}
                         </div>
-                        {requiresQueue(event, stats) && (
+                        {requiresQueue(event, stats, getQueueLoad(event.id)) && (
                           <div className="mt-4 rounded-md p-3 text-sm font-bold" style={{ background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' }}>
                             {t('queue')} {language === 'en' ? 'open until' : 'mở đến'} <FlashSaleTimer endsAt={event.sale_end_time} />
                           </div>
