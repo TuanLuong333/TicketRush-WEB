@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock, ShoppingCart, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SeatMap } from '../components/SeatMap';
 import { useApp } from '../store/AppContext';
 import { usePreferences } from '../store/PreferencesContext';
-import { formatDateTime, formatPrice, makeSeatLabel } from '../data/mockData';
-import type { Seat } from '../data/types';
+import { formatDateTime, formatPrice, getQueueThreshold, makeSeatLabel, requiresQueue } from '../data/mockData';
+import { QUEUE_FEATURE_ENABLED, type Seat } from '../data/types';
 
 const MAX_SELECT = 8;
 const HOLD_SECONDS = 10 * 60;
@@ -20,6 +20,7 @@ export default function SeatSelectionPage() {
     getSeats,
     getSeatZone,
     getZoneLayout,
+    getStats,
     getUserSeats,
     selectSeat,
     deselectSeat,
@@ -30,6 +31,9 @@ export default function SeatSelectionPage() {
     setHoldExpiry,
     activeOrderId,
     refreshSeatMap,
+    currentQueueEntry,
+    enterQueue,
+    trackTicketPageVisit,
   } = useApp();
   const { language } = usePreferences();
 
@@ -44,6 +48,59 @@ export default function SeatSelectionPage() {
   const canCheckout = Boolean(holdExpiry && activeOrderId) && userSeats.length > 0 && lockedCount === userSeats.length;
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [cancellingHold, setCancellingHold] = useState(false);
+  const currentQueueEntryRef = useRef(currentQueueEntry);
+  const eventRef = useRef(event);
+  const enterQueueRef = useRef(enterQueue);
+  const getStatsRef = useRef(getStats);
+  const navigateRef = useRef(navigate);
+
+  useEffect(() => {
+    currentQueueEntryRef.current = currentQueueEntry;
+    eventRef.current = event;
+    enterQueueRef.current = enterQueue;
+    getStatsRef.current = getStats;
+    navigateRef.current = navigate;
+  }, [currentQueueEntry, enterQueue, event, getStats, navigate]);
+
+  useEffect(() => {
+    // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+    if (!QUEUE_FEATURE_ENABLED) return undefined;
+    if (!eventId) return undefined;
+
+    const visit = trackTicketPageVisit(eventId);
+    let active = true;
+    let redirected = false;
+    const enforceQueue = () => {
+      if (!active || redirected) return;
+      const currentEvent = eventRef.current;
+      if (!currentEvent) return;
+      const snapshot = visit.getSnapshot();
+      const threshold = getQueueThreshold(currentEvent) ?? 0;
+      const queueEntry = currentQueueEntryRef.current;
+      const hasQueueAccess = queueEntry?.event_id === currentEvent.id && (
+        queueEntry.status === 'active' || queueEntry.status === 'completed'
+      );
+      const load = {
+        activeVisitors: snapshot.activeVisitors,
+      };
+
+      if (!hasQueueAccess && threshold > 0 && snapshot.visitorRank > threshold && requiresQueue(currentEvent, getStatsRef.current(currentEvent.id), load)) {
+        redirected = true;
+        active = false;
+        visit.cleanup();
+        void enterQueueRef.current(currentEvent.id).then(() => navigateRef.current(`/queue/${currentEvent.id}`));
+      }
+    };
+
+    enforceQueue();
+    const timer = window.setInterval(enforceQueue, 1000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      if (!redirected) visit.cleanup();
+    };
+  }, [eventId, trackTicketPageVisit]);
 
   useEffect(() => {
     if (!eventId) return;

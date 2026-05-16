@@ -1,27 +1,68 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
-import { ArrowRight, Clock, KeyRound, RefreshCw, Timer, Users, Wifi } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { ArrowRight, Clock, RefreshCw, Timer, Users, Wifi } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { formatDateTime } from '../data/mockData';
+import { formatDateTime, getQueueThreshold } from '../data/mockData';
+import { QUEUE_FEATURE_ENABLED, getQueueStatusLabel } from '../data/types';
 
 export default function QueuePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getEvent, currentQueueEntry, enterQueue, refreshQueueStatus, activateQueue, exitQueue, apiReady } = useApp();
+  const { getEvent, currentQueueEntry, enterQueue, refreshQueueStatus, activateQueue, exitQueue, apiReady, apiLoading, getQueueLoad, user } = useApp();
   const event = getEvent(id ?? 0);
   const [position, setPosition] = useState(currentQueueEntry?.position_number ?? 50);
   const initialPosition = useMemo(() => Math.max(1, currentQueueEntry?.position_number ?? position), [currentQueueEntry?.position_number, position]);
   const [ready, setReady] = useState(currentQueueEntry?.status === 'active');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const leavingForSeatMapRef = useRef(false);
+  const pageUnloadingRef = useRef(false);
+  const queueExitRef = useRef<{ eventId: number | null; shouldLeave: boolean }>({ eventId: null, shouldLeave: false });
 
   useEffect(() => {
+    // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+    if (!QUEUE_FEATURE_ENABLED && event) navigate(`/events/${event.id}/seats`, { replace: true });
+  }, [event, navigate]);
+
+  useEffect(() => {
+    queueExitRef.current = {
+      eventId: event?.id ?? null,
+      shouldLeave: Boolean(
+        event &&
+        currentQueueEntry?.event_id === event.id &&
+        currentQueueEntry.status === 'waiting'
+      ),
+    };
+  }, [currentQueueEntry, event]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      pageUnloadingRef.current = true;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const { eventId, shouldLeave } = queueExitRef.current;
+      if (!eventId || !shouldLeave || leavingForSeatMapRef.current || pageUnloadingRef.current) return;
+      void exitQueue(eventId);
+    };
+  }, [exitQueue]);
+
+  useEffect(() => {
+    if (!QUEUE_FEATURE_ENABLED) return;
     if (!event) return;
+    if (apiReady && !user) return;
     if (!currentQueueEntry || currentQueueEntry.event_id !== event.id) {
       void enterQueue(event.id).then(entry => setPosition(entry.position_number));
     }
-  }, [currentQueueEntry, enterQueue, event]);
+  }, [apiReady, currentQueueEntry, enterQueue, event, user]);
 
   useEffect(() => {
+    if (!QUEUE_FEATURE_ENABLED) return;
     if (ready) return;
     intervalRef.current = setInterval(() => {
       if (apiReady && event) {
@@ -34,34 +75,64 @@ export default function QueuePage() {
             setPosition(entry.position_number || 1);
           }
         });
-        return;
       }
-      setPosition(prev => {
-        const next = Math.max(0, prev - (Math.floor(Math.random() * 4) + 2));
-        if (next === 0) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          activateQueue();
-          setReady(true);
-        }
-        return next;
-      });
     }, 1600);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [activateQueue, apiReady, event, ready, refreshQueueStatus]);
+  }, [apiReady, event, ready, refreshQueueStatus]);
 
-  if (!event) {
-    navigate('/events');
-    return null;
-  }
-
-  const token = currentQueueEntry?.queue_token ?? 'Đang tạo';
-  const progress = Math.min(100, Math.round(((initialPosition - position) / initialPosition) * 100));
+  const queueLoad = event ? getQueueLoad(event.id) : { activeVisitors: 0, activeQueueEntries: 0 };
+  const queueThreshold = event ? getQueueThreshold(event) ?? 0 : 0;
+  const activeSeatVisitors = Math.max(0, Number(queueLoad.activeVisitors || 0));
+  const peopleAhead = Math.max(0, currentQueueEntry?.people_ahead ?? Math.max(position - 1, 0));
+  const seatSlotWait = queueThreshold > 0 ? Math.max(activeSeatVisitors - queueThreshold + 1, 0) : 0;
+  const livePosition = ready ? 0 : Math.max(0, peopleAhead + seatSlotWait);
+  const canEnterSeatMap = Boolean(event && currentQueueEntry) && (
+    ready ||
+    currentQueueEntry?.can_enter ||
+    currentQueueEntry?.status === 'active' ||
+    (peopleAhead === 0 && queueThreshold > 0 && activeSeatVisitors < queueThreshold)
+  );
+  const statusLabel = currentQueueEntry ? getQueueStatusLabel(currentQueueEntry.status) : 'Đang tạo';
+  const progress = Math.min(100, Math.max(0, Math.round(((initialPosition - livePosition) / initialPosition) * 100)));
   const expired = currentQueueEntry?.expires_at ? new Date(currentQueueEntry.expires_at).getTime() < Date.now() : false;
 
+  useEffect(() => {
+    if (!QUEUE_FEATURE_ENABLED) return;
+    if (!event || ready || !canEnterSeatMap) return;
+    if (!apiReady) activateQueue();
+    setPosition(0);
+    setReady(true);
+  }, [activateQueue, apiReady, canEnterSeatMap, event, ready]);
+
+  if (!event) {
+    if (apiLoading) {
+      return (
+        <main className="flex min-h-screen items-center justify-center px-4" style={{ background: '#F8FAFC', color: '#0F172A' }}>
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-orange-500" />
+            <p className="font-bold">Đang tải hàng chờ...</p>
+          </div>
+        </main>
+      );
+    }
+
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4" style={{ background: '#F8FAFC', color: '#0F172A' }}>
+        <div className="max-w-sm text-center">
+          <h1 className="text-2xl font-black">Không tìm thấy sự kiện</h1>
+          <Link to="/events" className="mt-5 inline-flex rounded-md px-5 py-3 font-black text-white" style={{ background: '#F97316' }}>
+            Về danh sách sự kiện
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   const enterSeatMap = () => {
+    leavingForSeatMapRef.current = true;
     void exitQueue(event.id);
     navigate(`/events/${event.id}/seats`);
   };
@@ -84,23 +155,20 @@ export default function QueuePage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-10" style={{ background: '#F8FAFC', color: '#0F172A' }}>
       <div className="w-full max-w-xl">
-        {ready ? (
+        {canEnterSeatMap ? (
           <div className="text-center">
             <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full" style={{ background: '#DCFCE7', color: '#16A34A' }}>
               <Timer size={44} />
             </div>
             <h1 className="text-3xl font-black">Đến lượt bạn</h1>
-            <p className="mt-2 text-sm" style={{ color: '#64748B' }}>Token có hiệu lực trong 5 phút để vào chọn ghế.</p>
+            <p className="mt-2 text-sm" style={{ color: '#64748B' }}>Lượt vào chọn ghế có hiệu lực trong 5 phút.</p>
             <div className="my-6 rounded-lg p-4 text-left" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-              <div className="mb-4 flex items-center gap-3">
+              <div className="flex items-center gap-3">
                 <img src={event.banner_url} alt={event.title} className="h-16 w-16 rounded-md object-cover" />
                 <div>
                   <h2 className="font-black">{event.title}</h2>
                   <p className="text-sm" style={{ color: '#64748B' }}>{formatDateTime(event.event_time)} • {event.location}</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 rounded-md p-3 font-mono text-sm" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>
-                <KeyRound size={16} /> {token}
               </div>
             </div>
             <button onClick={enterSeatMap} className="flex w-full items-center justify-center gap-2 rounded-md px-5 py-4 text-lg font-black text-white" style={{ background: '#16A34A' }}>
@@ -118,20 +186,17 @@ export default function QueuePage() {
             </div>
 
             <div className="rounded-lg p-7 text-center" style={{ background: '#fff', border: '1px solid #E2E8F0', boxShadow: '0 22px 60px rgba(15,23,42,0.08)' }}>
-              <div className="mb-4 flex items-center justify-center gap-2 rounded-md p-3 font-mono text-sm" style={{ background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' }}>
-                <KeyRound size={16} /> {token}
-              </div>
               <p className="text-sm font-bold" style={{ color: '#64748B' }}>Vị trí còn lại</p>
-              <div className="my-2 text-7xl font-black" style={{ color: '#F97316' }}>{position}</div>
-              <div className="mb-6 text-sm" style={{ color: '#64748B' }}>Ước tính {Math.max(1, Math.ceil(position / 18))} phút</div>
+              <div className="my-2 text-7xl font-black" style={{ color: '#F97316' }}>{livePosition}</div>
+              <div className="mb-6 text-sm" style={{ color: '#64748B' }}>Ước tính {Math.max(1, Math.ceil(Math.max(livePosition, 1) / 18))} phút</div>
               <div className="mb-5 h-3 overflow-hidden rounded-full" style={{ background: '#E2E8F0' }}>
                 <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, background: 'linear-gradient(90deg,#0EA5E9,#F97316)' }} />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label: 'Đang chờ', value: `~${position + 120}`, icon: Users },
-                  { label: 'Lượt', value: '30', icon: Timer },
-                  { label: 'Trạng thái', value: 'Trực tiếp', icon: Wifi },
+                  { label: 'Trước bạn', value: peopleAhead.toLocaleString(), icon: Users },
+                  { label: 'Vị trí', value: livePosition.toLocaleString(), icon: Timer },
+                  { label: 'Trạng thái', value: statusLabel, icon: Wifi },
                 ].map(({ label, value, icon: Icon }) => (
                   <div key={label} className="rounded-md p-3" style={{ background: '#F8FAFC' }}>
                     <Icon size={17} className="mx-auto mb-1" style={{ color: '#F97316' }} />

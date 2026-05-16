@@ -1,3 +1,4 @@
+import { AUTO_QUEUE_THRESHOLD, QUEUE_FEATURE_ENABLED } from './types';
 import type {
   AdminRevenuePoint,
   Event,
@@ -15,6 +16,11 @@ import type {
   ZoneStats,
   EventStatus,
 } from './types';
+
+export interface QueueLoad {
+  activeVisitors?: number;
+  activeQueueEntries?: number;
+}
 
 export type {
   Event,
@@ -506,8 +512,26 @@ export function getAutoEventStatus(
   return event.status;
 }
 
-export function requiresQueue(event: Event, stats?: Pick<EventStats, 'available' | 'total_capacity'>): boolean {
-  return event.seat_plan.includes('queue') && getAutoEventStatus(event, stats) === 'on_sale';
+export function getQueueThreshold(_event: Event): number | null {
+  // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+  if (!QUEUE_FEATURE_ENABLED) return null;
+  return AUTO_QUEUE_THRESHOLD > 0 ? AUTO_QUEUE_THRESHOLD : null;
+}
+
+export function requiresQueue(
+  event: Event,
+  stats?: Pick<EventStats, 'available' | 'total_capacity'>,
+  load: QueueLoad = {},
+): boolean {
+  // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+  if (!QUEUE_FEATURE_ENABLED) return false;
+
+  const threshold = getQueueThreshold(event);
+  if (!threshold || getAutoEventStatus(event, stats) !== 'on_sale') return false;
+
+  const activeVisitors = Math.max(0, Number(load.activeVisitors || 0));
+  const activeQueueEntries = Math.max(0, Number(load.activeQueueEntries || 0));
+  return activeQueueEntries > 0 || activeVisitors > threshold;
 }
 
 export function isSaleOpen(event: Event): boolean {

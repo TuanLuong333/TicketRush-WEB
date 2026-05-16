@@ -18,7 +18,8 @@ import {
   makeQueueToken,
   applySeatPlanLayouts,
 } from '../data/mockData';
-import { AUTO_QUEUE_THRESHOLD } from '../data/types';
+import type { QueueLoad } from '../data/mockData';
+import { AUTO_QUEUE_THRESHOLD, QUEUE_FEATURE_ENABLED } from '../data/types';
 import type {
   Event,
   EventStats,
@@ -50,6 +51,13 @@ interface HoldResult {
   order: Order | null;
   queueRequired?: boolean;
   message?: string;
+}
+
+interface TicketPageVisit {
+  activeVisitors: number;
+  visitorRank: number;
+  getSnapshot: () => Pick<TicketPageVisit, 'activeVisitors' | 'visitorRank'>;
+  cleanup: () => void;
 }
 
 interface AppContextValue {
@@ -97,6 +105,8 @@ interface AppContextValue {
   confirmOrder: (orderId: number, paymentMethod: PaymentMethod) => Promise<Order | null>;
 
   currentQueueEntry: QueueEntry | null;
+  getQueueLoad: (eventId: string | number) => QueueLoad;
+  trackTicketPageVisit: (eventId: string | number) => TicketPageVisit;
   enterQueue: (eventId: string | number) => Promise<QueueEntry>;
   refreshQueueStatus: (eventId: string | number) => Promise<QueueEntry | null>;
   activateQueue: () => void;
@@ -129,6 +139,17 @@ function replaceEventSlice<T extends { id: number }>(current: T[], incoming: T[]
 
 const LOCAL_BANNERS_KEY = 'ticketrush.localBanners';
 const LOCAL_SEAT_MAPS_KEY = 'ticketrush.localSeatMaps';
+const ACTIVE_TICKET_VISITORS_KEY = 'ticketrush.activeTicketVisitors';
+const ACTIVE_TICKET_VISITOR_SESSION_PREFIX = 'ticketrush.ticketVisitor';
+const ACTIVE_TICKET_VISITOR_HEARTBEAT_MS = 5000;
+const ACTIVE_TICKET_VISITOR_TTL_MS = 15000;
+
+interface ActiveTicketVisitor {
+  expiresAt: number;
+  enteredAt: number;
+}
+
+type ActiveTicketVisitorStore = Record<string, Record<string, ActiveTicketVisitor>>;
 
 function isInlineImage(value?: string | null): value is string {
   return Boolean(value?.startsWith('data:image/'));
@@ -175,6 +196,121 @@ function saveLocalSeatMap(eventId: number, seatMapUrl?: string | null) {
   }
 }
 
+function createTicketVisitorToken(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getTicketVisitorToken(eventId: number): string {
+  if (typeof window === 'undefined') return createTicketVisitorToken();
+
+  try {
+    const key = `${ACTIVE_TICKET_VISITOR_SESSION_PREFIX}.${eventId}`;
+    const current = window.sessionStorage.getItem(key);
+    if (current) return current;
+
+    const next = createTicketVisitorToken();
+    window.sessionStorage.setItem(key, next);
+    return next;
+  } catch {
+    return createTicketVisitorToken();
+  }
+}
+
+function normalizeActiveTicketVisitor(value: unknown, now = Date.now()): ActiveTicketVisitor | null {
+  if (typeof value === 'number') {
+    return value > now ? { expiresAt: value, enteredAt: value - ACTIVE_TICKET_VISITOR_TTL_MS } : null;
+  }
+  if (!value || typeof value !== 'object') return null;
+
+  const candidate = value as Partial<ActiveTicketVisitor>;
+  const expiresAt = Number(candidate.expiresAt);
+  const enteredAt = Number(candidate.enteredAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
+  return {
+    expiresAt,
+    enteredAt: Number.isFinite(enteredAt) ? enteredAt : expiresAt - ACTIVE_TICKET_VISITOR_TTL_MS,
+  };
+}
+
+function pruneActiveTicketVisitors(store: Record<string, Record<string, unknown>>, now = Date.now()): ActiveTicketVisitorStore {
+  const pruned: ActiveTicketVisitorStore = {};
+
+  for (const [eventId, visitors] of Object.entries(store)) {
+    const activeVisitors = Object.fromEntries(
+      Object.entries(visitors || {})
+        .map(([token, visitor]) => [token, normalizeActiveTicketVisitor(visitor, now)] as const)
+        .filter((entry): entry is [string, ActiveTicketVisitor] => Boolean(entry[1])),
+    );
+    if (Object.keys(activeVisitors).length > 0) pruned[eventId] = activeVisitors;
+  }
+
+  return pruned;
+}
+
+function readActiveTicketVisitors(now = Date.now()): ActiveTicketVisitorStore {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ACTIVE_TICKET_VISITORS_KEY) || '{}') as ActiveTicketVisitorStore;
+    return pruneActiveTicketVisitors(parsed, now);
+  } catch {
+    return {};
+  }
+}
+
+function getTicketVisitorRank(store: ActiveTicketVisitorStore, eventId: number, visitorToken: string): number {
+  const visitors = store[String(eventId)] || {};
+  const sortedTokens = Object.entries(visitors)
+    .sort(([leftToken, left], [rightToken, right]) => (
+      left.enteredAt - right.enteredAt || leftToken.localeCompare(rightToken)
+    ))
+    .map(([token]) => token);
+  const index = sortedTokens.indexOf(visitorToken);
+  return index >= 0 ? index + 1 : 0;
+}
+
+function saveActiveTicketVisitors(store: ActiveTicketVisitorStore) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(ACTIVE_TICKET_VISITORS_KEY, JSON.stringify(store));
+  } catch {
+    // Visitor counts are only a client-side hint for queue display.
+  }
+}
+
+function countActiveTicketVisitors(store: ActiveTicketVisitorStore): Record<number, number> {
+  return Object.fromEntries(
+    Object.entries(store).map(([eventId, visitors]) => [Number(eventId), Object.keys(visitors).length]),
+  ) as Record<number, number>;
+}
+
+function touchActiveTicketVisitor(eventId: number, visitorToken: string): Record<number, number> {
+  const store = readActiveTicketVisitors();
+  const key = String(eventId);
+  const currentVisitor = store[key]?.[visitorToken];
+  store[key] = {
+    ...(store[key] || {}),
+    [visitorToken]: {
+      expiresAt: Date.now() + ACTIVE_TICKET_VISITOR_TTL_MS,
+      enteredAt: currentVisitor?.enteredAt ?? Date.now(),
+    },
+  };
+  saveActiveTicketVisitors(store);
+  return countActiveTicketVisitors(store);
+}
+
+function removeActiveTicketVisitor(eventId: number, visitorToken: string): Record<number, number> {
+  const store = readActiveTicketVisitors();
+  const key = String(eventId);
+  if (store[key]) {
+    delete store[key][visitorToken];
+    if (Object.keys(store[key]).length === 0) delete store[key];
+  }
+  saveActiveTicketVisitors(store);
+  return countActiveTicketVisitors(store);
+}
+
 function applyLocalBanner(event: Event): Event {
   const eventId = String(event.id);
   const banner = readLocalBanners()[eventId];
@@ -212,6 +348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [holdExpiry, setHoldExpiry] = useState<Date | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [currentQueueEntry, setCurrentQueueEntry] = useState<QueueEntry | null>(null);
+  const [activeTicketVisitors, setActiveTicketVisitors] = useState<Record<number, number>>(() => countActiveTicketVisitors(readActiveTicketVisitors()));
   const holdExpiryRef = useRef<Date | null>(null);
   const activeOrderIdRef = useRef<number | null>(null);
 
@@ -219,6 +356,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     holdExpiryRef.current = holdExpiry;
     activeOrderIdRef.current = activeOrderId;
   }, [activeOrderId, holdExpiry]);
+
+  const syncActiveTicketVisitors = useCallback(() => {
+    const store = readActiveTicketVisitors();
+    saveActiveTicketVisitors(store);
+    setActiveTicketVisitors(countActiveTicketVisitors(store));
+  }, []);
+
+  useEffect(() => {
+    // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+    if (!QUEUE_FEATURE_ENABLED) return undefined;
+
+    syncActiveTicketVisitors();
+    const timer = window.setInterval(syncActiveTicketVisitors, ACTIVE_TICKET_VISITOR_HEARTBEAT_MS);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === ACTIVE_TICKET_VISITORS_KEY) syncActiveTicketVisitors();
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [syncActiveTicketVisitors]);
 
   useEffect(() => {
     const releaseExpiredLocks = () => {
@@ -557,8 +716,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         seatPlan: event.seat_plan,
         seatPlanCode: event.seat_plan,
         seatMapImageUrl: localSeatMap ? null : event.seat_map_image_url ?? null,
-        queueMode: 'AUTO',
-        queueThreshold: AUTO_QUEUE_THRESHOLD,
+        // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+        queueMode: QUEUE_FEATURE_ENABLED ? 'AUTO' : 'OFF',
+        queueThreshold: QUEUE_FEATURE_ENABLED ? AUTO_QUEUE_THRESHOLD : undefined,
       });
 
       for (const zone of zones) {
@@ -651,8 +811,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         seatPlan: data.seat_plan,
         seatPlanCode: data.seat_plan,
         seatMapImageUrl: localSeatMap ? undefined : data.seat_map_image_url ?? null,
-        queueMode: data.seat_plan ? 'AUTO' : undefined,
-        queueThreshold: data.seat_plan ? AUTO_QUEUE_THRESHOLD : undefined,
+        // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+        queueMode: data.seat_plan ? (QUEUE_FEATURE_ENABLED ? 'AUTO' : 'OFF') : undefined,
+        queueThreshold: data.seat_plan && QUEUE_FEATURE_ENABLED ? AUTO_QUEUE_THRESHOLD : undefined,
       });
       apiEventData = adaptEvent(updated.event);
     }
@@ -926,6 +1087,67 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return confirmed;
   }, [addLog, apiReady, orderItems, orders, refreshOrders, user]);
 
+  const getQueueLoad = useCallback((eventId: string | number): QueueLoad => {
+    // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+    if (!QUEUE_FEATURE_ENABLED) return { activeVisitors: 0, activeQueueEntries: 0 };
+
+    const numericEventId = asId(eventId);
+    const now = Date.now();
+    return {
+      activeVisitors: activeTicketVisitors[numericEventId] ?? 0,
+      activeQueueEntries: queueEntries.filter(entry => {
+        if (entry.event_id !== numericEventId || (entry.status !== 'waiting' && entry.status !== 'active')) return false;
+        if (!entry.expires_at) return true;
+        const expiresAt = new Date(entry.expires_at).getTime();
+        return Number.isNaN(expiresAt) || expiresAt > now;
+      }).length,
+    };
+  }, [activeTicketVisitors, queueEntries]);
+
+  const trackTicketPageVisit = useCallback((eventId: string | number): TicketPageVisit => {
+    const numericEventId = asId(eventId);
+    if (!numericEventId || typeof window === 'undefined') {
+      return { activeVisitors: 0, visitorRank: 0, getSnapshot: () => ({ activeVisitors: 0, visitorRank: 0 }), cleanup: () => {} };
+    }
+
+    const visitorToken = getTicketVisitorToken(numericEventId);
+    let disposed = false;
+    let activeVisitors = 0;
+    let visitorRank = 0;
+    const getSnapshot = () => {
+      const store = readActiveTicketVisitors();
+      return {
+        activeVisitors: countActiveTicketVisitors(store)[numericEventId] ?? 0,
+        visitorRank: getTicketVisitorRank(store, numericEventId, visitorToken),
+      };
+    };
+    const heartbeat = () => {
+      if (disposed) return;
+      const counts = touchActiveTicketVisitor(numericEventId, visitorToken);
+      activeVisitors = counts[numericEventId] ?? 0;
+      visitorRank = getTicketVisitorRank(readActiveTicketVisitors(), numericEventId, visitorToken);
+      setActiveTicketVisitors(counts);
+    };
+
+    heartbeat();
+    const timer = window.setInterval(heartbeat, ACTIVE_TICKET_VISITOR_HEARTBEAT_MS);
+    const cleanup = () => {
+      if (disposed) return;
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener('pagehide', cleanup);
+      setActiveTicketVisitors(removeActiveTicketVisitor(numericEventId, visitorToken));
+    };
+    window.addEventListener('pagehide', cleanup);
+
+    return {
+      activeVisitors,
+      visitorRank,
+      getSnapshot,
+      cleanup,
+    };
+  }, []);
+
   const enterQueue = useCallback(async (eventId: string | number) => {
     const numericEventId = asId(eventId);
     if (apiReady && user) {
@@ -1033,6 +1255,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     activeOrderId,
     confirmOrder,
     currentQueueEntry,
+    getQueueLoad,
+    trackTicketPageVisit,
     enterQueue,
     refreshQueueStatus,
     activateQueue,
@@ -1078,6 +1302,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     activeOrderId,
     confirmOrder,
     currentQueueEntry,
+    getQueueLoad,
+    trackTicketPageVisit,
     enterQueue,
     refreshQueueStatus,
     activateQueue,

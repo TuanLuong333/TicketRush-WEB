@@ -226,6 +226,8 @@ export function adaptQueueEntry(entry: ApiQueueEntry, eventId: number, userId: n
     queue_token: entry.queueToken || '',
     status: normalizeQueueStatus(entry.status),
     position_number: Number(entry.position ?? entry.positionNumber ?? 0),
+    people_ahead: entry.peopleAhead === null || entry.peopleAhead === undefined ? undefined : Number(entry.peopleAhead),
+    can_enter: entry.canEnter,
     activated_at: entry.activatedAt || undefined,
     expires_at: entry.expiresAt || undefined,
     created_at: createdAt,

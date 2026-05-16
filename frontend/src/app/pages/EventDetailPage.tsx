@@ -11,7 +11,7 @@ import { useClockTick } from '../hooks/useClockTick';
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getEvent, getZones, getStats, user, enterQueue, refreshSeatMap } = useApp();
+  const { getEvent, getZones, getStats, user, enterQueue, refreshSeatMap, getQueueLoad } = useApp();
   const { language, t } = usePreferences();
   const now = useClockTick();
   const event = getEvent(id ?? 0);
@@ -36,7 +36,7 @@ export default function EventDetailPage() {
   const zones = getZones(event.id);
   const stats = getStats(event.id);
   const status = getAutoEventStatus(event, stats, now);
-  const queueEnabled = requiresQueue(event, stats);
+  const queueEnabled = requiresQueue(event, stats, getQueueLoad(event.id));
   const saleOpen = status === 'on_sale';
 
   const handleBooking = async () => {

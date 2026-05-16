@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import QRCode from 'react-qr-code';
-import { CalendarDays, ChevronRight, MapPin, Search, Ticket, X } from 'lucide-react';
+import { CalendarDays, ChevronRight, MapPin, Search, Ticket, X, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { useApp } from '../store/AppContext';
 import { usePreferences } from '../store/PreferencesContext';
 import type { Order, OrderStatus } from '../data/types';
@@ -24,11 +25,12 @@ function getStatusTone(status: OrderStatus) {
 }
 
 export default function MyTicketsPage() {
-  const { user, orders, orderItems, seats, getEvent, getSeatZone } = useApp();
+  const { user, orders, orderItems, seats, getEvent, getSeatZone, cancelHeldSeats } = useApp();
   const { language } = usePreferences();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState<number | null>(null);
 
   const visibleOrders = useMemo(() => {
     if (!user) return [];
@@ -47,6 +49,23 @@ export default function MyTicketsPage() {
   const goToCheckout = (order: Order) => {
     setSelectedOrder(null);
     navigate('/checkout', { state: { eventId: order.event_id, orderId: order.id } });
+  };
+
+  const handleCancelHold = async (order: Order) => {
+    if (cancellingOrderId) return;
+
+    setCancellingOrderId(order.id);
+    try {
+      const cancelled = await cancelHeldSeats(order.event_id, order.id);
+      if (cancelled) {
+        toast.success(language === 'en' ? 'Held seats cancelled' : 'Đã hủy giữ ghế');
+        setSelectedOrder(current => current?.id === order.id ? null : current);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : (language === 'en' ? 'Could not cancel held seats' : 'Không thể hủy giữ ghế'));
+    } finally {
+      setCancellingOrderId(null);
+    }
   };
 
   if (!user) {
@@ -100,6 +119,8 @@ export default function MyTicketsPage() {
               const visibleStatus = getVisibleOrderStatus(order);
               const statusTone = getStatusTone(visibleStatus);
               const payable = isPayableOrder(order);
+              const cancellable = payable && user.role === 'customer' && order.user_id === user.id;
+              const cancelling = cancellingOrderId === order.id;
               return (
                 <div
                   key={order.id}
@@ -144,10 +165,26 @@ export default function MyTicketsPage() {
                                 event.stopPropagation();
                                 goToCheckout(order);
                               }}
+                              disabled={cancelling}
                               className="rounded-md px-3 py-2 text-xs font-black text-white"
-                              style={{ background: '#F97316' }}
+                              style={{ background: cancelling ? '#FDBA74' : '#F97316' }}
                             >
                               {language === 'en' ? 'Pay now' : 'Thanh toán ngay'}
+                            </button>
+                          )}
+                          {cancellable && (
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                void handleCancelHold(order);
+                              }}
+                              disabled={cancelling}
+                              className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-black"
+                              style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', opacity: cancelling ? 0.72 : 1 }}
+                            >
+                              {cancelling ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-red-300 border-t-red-600" /> : <XCircle size={13} />}
+                              {language === 'en' ? 'Cancel hold' : 'Hủy giữ'}
                             </button>
                           )}
                         </div>
@@ -170,6 +207,8 @@ export default function MyTicketsPage() {
               const firstItem = items[0];
               const visibleStatus = getVisibleOrderStatus(selectedOrder);
               const payable = isPayableOrder(selectedOrder);
+              const cancellable = payable && user.role === 'customer' && selectedOrder.user_id === user.id;
+              const cancelling = cancellingOrderId === selectedOrder.id;
               const expiredPending = selectedOrder.status === 'pending' && visibleStatus === 'expired';
               return (
                 <>
@@ -217,14 +256,29 @@ export default function MyTicketsPage() {
                         </p>
                       </>
                     ) : payable ? (
-                      <button
-                        type="button"
-                        onClick={() => goToCheckout(selectedOrder)}
-                        className="mb-4 w-full rounded-md px-4 py-3 font-black text-white"
-                        style={{ background: '#F97316' }}
-                      >
-                        {language === 'en' ? 'Pay now' : 'Thanh toán ngay'}
-                      </button>
+                      <div className="mb-4 space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => goToCheckout(selectedOrder)}
+                          disabled={cancelling}
+                          className="w-full rounded-md px-4 py-3 font-black text-white"
+                          style={{ background: cancelling ? '#FDBA74' : '#F97316' }}
+                        >
+                          {language === 'en' ? 'Pay now' : 'Thanh toán ngay'}
+                        </button>
+                        {cancellable && (
+                          <button
+                            type="button"
+                            onClick={() => void handleCancelHold(selectedOrder)}
+                            disabled={cancelling}
+                            className="flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 font-black"
+                            style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', opacity: cancelling ? 0.72 : 1 }}
+                          >
+                            {cancelling ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" /> : <XCircle size={17} />}
+                            {language === 'en' ? 'Cancel held seats' : 'Hủy giữ ghế'}
+                          </button>
+                        )}
+                      </div>
                     ) : expiredPending ? (
                       <div className="mb-4 rounded-md p-3 text-sm font-bold" style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}>
                         {language === 'en' ? 'This hold has expired. Please book the seats again.' : 'Phiên giữ ghế đã hết hạn. Vui lòng đặt vé lại.'}

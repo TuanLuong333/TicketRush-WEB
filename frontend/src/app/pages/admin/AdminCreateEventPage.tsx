@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router';
 import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, Copy, FlipHorizontal2, Maximize2, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '../../store/AppContext';
-import { AUTO_QUEUE_MARKER } from '../../data/types';
+import { AUTO_QUEUE_MARKER, QUEUE_FEATURE_ENABLED } from '../../data/types';
 import type { Event, SeatZone, ZoneLayout } from '../../data/types';
 import { getAutoEventStatus } from '../../data/mockData';
 import { usePreferences } from '../../store/PreferencesContext';
@@ -227,7 +227,9 @@ function encodeSeatPlanLayout(zones: Array<Pick<ZoneForm, 'name' | 'layout_x' | 
 
 function normalizeSeatPlan(seatPlan: string, zones: Array<Pick<ZoneForm, 'name' | 'layout_x' | 'layout_y' | 'layout_width' | 'layout_height' | 'layout_rotation'>>): string {
   const base = seatPlanWithoutQueue(seatPlan) || 'seat-map';
-  return `${base}|${AUTO_QUEUE_MARKER}|${encodeSeatPlanLayout(zones)}`;
+  // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
+  const queueMarker = QUEUE_FEATURE_ENABLED ? `|${AUTO_QUEUE_MARKER}` : '';
+  return `${base}${queueMarker}|${encodeSeatPlanLayout(zones)}`;
 }
 
 function clampPercent(value: unknown, fallback: number, min: number, max: number): number {

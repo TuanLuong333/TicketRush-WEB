@@ -19,7 +19,7 @@ import {
 } from '../../components/ui/alert-dialog';
 
 export default function AdminEventsPage() {
-  const { events, getStats, getZones, deleteEvent } = useApp();
+  const { events, getStats, getZones, getQueueLoad, deleteEvent } = useApp();
   const { language, t } = usePreferences();
   const now = useClockTick();
   const [search, setSearch] = useState('');
@@ -118,7 +118,7 @@ export default function AdminEventsPage() {
                           <span className={`rounded-md px-2 py-1 text-xs font-black ${status === 'on_sale' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
                             {getEventStatusLabel(status, language)}
                           </span>
-                          {requiresQueue(event, stats) && <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-black bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300"><Timer size={12} /> {t('queue')}</span>}
+                          {requiresQueue(event, stats, getQueueLoad(event.id)) && <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-black bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300"><Timer size={12} /> {t('queue')}</span>}
                         </div>
                       </td>
                       <td className="px-4 py-3">

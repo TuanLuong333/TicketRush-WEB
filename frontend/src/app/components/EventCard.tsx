@@ -14,12 +14,12 @@ interface EventCardProps {
 }
 
 export function EventCard({ event, featured = false }: EventCardProps) {
-  const { getStats } = useApp();
+  const { getStats, getQueueLoad } = useApp();
   const { language, t } = usePreferences();
   const now = useClockTick();
   const stats = getStats(event.id);
   const status = getAutoEventStatus(event, stats, now);
-  const queueEnabled = requiresQueue(event, stats);
+  const queueEnabled = requiresQueue(event, stats, getQueueLoad(event.id));
 
   return (
     <Link
