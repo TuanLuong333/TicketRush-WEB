@@ -132,18 +132,18 @@ export default function AdminOrdersPage() {
       </header>
 
       <div className="space-y-5 p-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-lg">
           <div className="relative w-full max-w-md">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               value={search}
               onChange={event => setSearch(event.target.value)}
               placeholder={language === 'en' ? 'Search order, customer or event' : 'Tìm mã đơn, khách hàng hoặc sự kiện'}
-              className="w-full rounded-md py-3 pl-9 pr-3 text-sm outline-none bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-orange-500"
+              className="w-full rounded-md py-2 pl-9 pr-3 text-sm outline-none bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-orange-500"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-md px-3 py-2 text-sm font-black text-slate-700 bg-white border border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800">
+            <div className="rounded-md px-3 py-2 text-sm font-black text-slate-700 bg-slate-50 border border-slate-200 dark:bg-slate-950 dark:text-slate-300 dark:border-slate-800">
               {filteredOrders.length} {language === 'en' ? 'orders' : 'đơn'} • {orderGroups.length} {language === 'en' ? 'days' : 'ngày'}
             </div>
             <div className="rounded-md px-3 py-2 text-sm font-black text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800">
@@ -177,19 +177,19 @@ export default function AdminOrdersPage() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed min-w-[900px]">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800">
                         {[
-                          language === 'en' ? 'Order' : 'Mã đơn',
-                          language === 'en' ? 'Customer' : 'Khách hàng',
-                          language === 'en' ? 'Event' : 'Sự kiện',
-                          language === 'en' ? 'Tickets' : 'Vé',
-                          language === 'en' ? 'Amount' : 'Tổng tiền',
-                          language === 'en' ? 'Status' : 'Trạng thái',
-                          language === 'en' ? 'Time' : 'Giờ tạo',
+                          { label: language === 'en' ? 'Order' : 'Mã đơn', className: 'w-[15%]' },
+                          { label: language === 'en' ? 'Customer' : 'Khách hàng', className: 'w-[22%]' },
+                          { label: language === 'en' ? 'Event' : 'Sự kiện', className: 'w-[28%]' },
+                          { label: language === 'en' ? 'Tickets' : 'Vé', className: 'w-[7%]' },
+                          { label: language === 'en' ? 'Amount' : 'Tổng tiền', className: 'w-[10%]' },
+                          { label: language === 'en' ? 'Status' : 'Trạng thái', className: 'w-[10%]' },
+                          { label: language === 'en' ? 'Time' : 'Giờ tạo', className: 'w-[8%]' },
                         ].map(head => (
-                          <th key={head} className="px-4 py-3 text-left text-xs font-black uppercase text-slate-500 dark:text-slate-400 whitespace-nowrap">{head}</th>
+                          <th key={head.label} className={`px-4 py-3 text-left text-xs font-black uppercase text-slate-500 dark:text-slate-400 whitespace-nowrap ${head.className}`}>{head.label}</th>
                         ))}
                       </tr>
                     </thead>
@@ -216,7 +216,7 @@ export default function AdminOrdersPage() {
                               <div className="font-bold">{customerName ?? `${language === 'en' ? 'User' : 'Người dùng'} #${order.user_id}`}</div>
                               <div className="text-xs text-slate-500 dark:text-slate-400">{customerEmail ?? '-'}</div>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap">{event?.title ?? `${language === 'en' ? 'Event' : 'Sự kiện'} #${order.event_id}`}</td>
+                            <td className="px-4 py-3 break-words">{event?.title ?? `${language === 'en' ? 'Event' : 'Sự kiện'} #${order.event_id}`}</td>
                             <td className="px-4 py-3 font-bold">{itemCountByOrderId.get(order.id) ?? order.item_count ?? 0}</td>
                             <td className="px-4 py-3 font-bold">{formatPrice(order.total_amount)}</td>
                             <td className="px-4 py-3 whitespace-nowrap">

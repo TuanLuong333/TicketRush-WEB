@@ -117,33 +117,45 @@ export default function AdminDashboardPage() {
     ? Object.values(dashboardMap).reduce((sum, d) => sum + (d.lockedSeats || 0), 0)
     : seatLockLogs.filter(log => log.action === 'lock').length;
 
-  const eventOccupancy = useMemo(() => events.slice(0, 6).map(event => {
-    const dash = dashboardMap[event.id];
-    if (dash) {
+  const eventOccupancy = useMemo(() => {
+    const data = events.map(event => {
+      const dash = dashboardMap[event.id];
+      const name = event.title.split(' ').slice(0, 2).join(' ');
+      const shortName = name.length > 15 ? name.substring(0, 15) + '...' : name;
+      
+      if (dash) {
+        return {
+          name: shortName,
+          sold: dash.soldSeats,
+          available: dash.availableSeats,
+          occupancy: dash.occupancyRate,
+        };
+      }
+      const stats = getStats(event.id);
       return {
-        name: event.title.split(' ').slice(0, 2).join(' '),
-        sold: dash.soldSeats,
-        available: dash.availableSeats,
-        occupancy: dash.occupancyRate,
+        name: shortName,
+        sold: stats.sold,
+        available: stats.available,
+        occupancy: stats.occupancy_pct,
       };
-    }
-    const stats = getStats(event.id);
-    return {
-      name: event.title.split(' ').slice(0, 2).join(' '),
-      sold: stats.sold,
-      available: stats.available,
-      occupancy: stats.occupancy_pct,
-    };
-  }), [dashboardMap, events, getStats]);
+    });
+    return data.sort((a, b) => b.occupancy - a.occupancy).slice(0, 6);
+  }, [dashboardMap, events, getStats]);
 
-  const revenueByEvent = useMemo(() => events.slice(0, 8).map(event => {
-    const dash = dashboardMap[event.id];
-    return {
-      label: event.title.split(' ').slice(0, 2).join(' '),
-      revenue: dash?.revenue || 0,
-      tickets: dash?.soldSeats || 0,
-    };
-  }), [dashboardMap, events]);
+  const revenueByEvent = useMemo(() => {
+    const data = events.map(event => {
+      const dash = dashboardMap[event.id];
+      const label = event.title.split(' ').slice(0, 2).join(' ');
+      const shortLabel = label.length > 15 ? label.substring(0, 15) + '...' : label;
+      
+      return {
+        label: shortLabel,
+        revenue: dash?.revenue || 0,
+        tickets: dash?.soldSeats || 0,
+      };
+    });
+    return data.sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  }, [dashboardMap, events]);
 
   const localAudienceStats = useMemo(() => {
     const paidUserIds = new Set(orders.filter(order => order.status === 'paid').map(order => order.user_id));
@@ -255,11 +267,11 @@ export default function AdminDashboardPage() {
           <div className="rounded-lg p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="font-black">{language === 'en' ? 'Revenue by event' : 'Doanh thu theo sự kiện'}</h2>
+                <h2 className="font-black">{language === 'en' ? 'Top revenue by event' : 'Top doanh thu theo sự kiện'}</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   {apiReady
-                    ? (language === 'en' ? 'Recorded revenue returned by each event report' : 'Doanh thu ghi nhận theo báo cáo từng sự kiện')
-                    : (language === 'en' ? 'Calculated from paid order totals' : 'Tính từ tổng tiền các đơn đã thanh toán')}
+                    ? (language === 'en' ? 'Top 8 events with highest recorded revenue' : 'Top 8 sự kiện có doanh thu cao nhất')
+                    : (language === 'en' ? 'Top 8 events calculated from paid order totals' : 'Top 8 sự kiện tính từ tổng tiền các đơn')}
                 </p>
               </div>
               <Database size={20} style={{ color: '#F97316' }} />
@@ -284,11 +296,11 @@ export default function AdminDashboardPage() {
           <div className="rounded-lg p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="font-black">{language === 'en' ? 'Event occupancy' : 'Lấp đầy sự kiện'}</h2>
+                <h2 className="font-black">{language === 'en' ? 'Top event occupancy' : 'Top lấp đầy sự kiện'}</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   {apiReady
-                    ? (language === 'en' ? 'Sold seats compared with total capacity' : 'Tỷ lệ ghế đã bán so với tổng sức chứa')
-                    : (language === 'en' ? 'Calculated from current seat states' : 'Tính từ trạng thái ghế hiện tại')}
+                    ? (language === 'en' ? 'Top 6 events with highest sold seats ratio' : 'Top 6 sự kiện có tỷ lệ lấp đầy cao nhất')
+                    : (language === 'en' ? 'Top 6 events calculated from current seat states' : 'Top 6 sự kiện tính từ trạng thái ghế')}
                 </p>
               </div>
               <Activity size={20} style={{ color: '#0EA5E9' }} />

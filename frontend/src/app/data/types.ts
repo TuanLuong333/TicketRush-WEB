@@ -30,10 +30,12 @@ export interface Event {
   event_time: string;
   seat_plan: string;
   seat_map_image_url?: string;
+  seat_map_file?: File;
   sale_start_time: string;
   sale_end_time: string;
   status: EventStatus;
   banner_url: string;
+  banner_file?: File;
   created_by: number;
   created_at: string;
   updated_at: string;
