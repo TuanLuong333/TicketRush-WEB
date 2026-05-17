@@ -109,7 +109,9 @@ interface EventFormState {
   sale_start_time: string;
   sale_end_time: string;
   banner_url: string;
+  banner_file?: File;
   seat_map_image_url: string;
+  seat_map_file?: File;
 }
 
 const COLORS = ['#F97316', '#0EA5E9', '#16A34A', '#7C3AED', '#F43F5E', '#64748B'];
@@ -488,7 +490,13 @@ export default function AdminCreateEventPage() {
 
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') updateForm(field, reader.result);
+      if (typeof reader.result === 'string') {
+        setForm(prev => ({ 
+          ...prev, 
+          [field]: reader.result, 
+          [field === 'banner_url' ? 'banner_file' : 'seat_map_file']: file 
+        }));
+      }
     };
     reader.onerror = () => toast.error(language === 'en' ? 'Could not read image file' : 'Không thể đọc file ảnh');
     reader.readAsDataURL(file);
@@ -1010,10 +1018,12 @@ export default function AdminCreateEventPage() {
       event_time: form.event_time,
       seat_plan: seatPlan,
       seat_map_image_url: form.seat_map_image_url || undefined,
+      seat_map_file: form.seat_map_file,
       sale_start_time: form.sale_start_time,
       sale_end_time: form.sale_end_time,
       status: 'draft',
       banner_url: form.banner_url || DEFAULT_BANNER,
+      banner_file: form.banner_file,
       created_by: editingEvent?.created_by ?? user?.id ?? 1,
       created_at: createdAt,
       updated_at: nowIso,

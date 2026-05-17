@@ -177,7 +177,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   const token = getToken();
 
-  if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');
+  if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   let response: Response;
@@ -315,15 +317,39 @@ export const apiClient = {
     seatPlan?: string | null;
     seatPlanCode?: string | null;
     seatMapImageUrl?: string | null;
+    bannerFile?: File;
+    seatMapFile?: File;
     queueMode?: 'AUTO' | 'MANUAL' | 'OFF';
     queueThreshold?: number;
   }) {
-    return request<{ event: ApiEvent }>('/api/admin/events', {
-      method: 'POST',
-      body: JSON.stringify({
+    let body: BodyInit;
+    if (payload.bannerFile || payload.seatMapFile) {
+      const formData = new FormData();
+      formData.append('title', payload.title);
+      if (payload.description) formData.append('description', payload.description);
+      formData.append('location', payload.location);
+      formData.append('startTime', payload.startTime);
+      if (payload.endTime) formData.append('endTime', payload.endTime);
+      if (payload.saleStartTime) formData.append('saleStartTime', payload.saleStartTime);
+      if (payload.saleEndTime) formData.append('saleEndTime', payload.saleEndTime);
+      formData.append('status', toApiEventStatus(payload.status));
+      if (payload.seatPlan) formData.append('seatPlan', payload.seatPlan);
+      if (payload.seatPlanCode) formData.append('seatPlanCode', payload.seatPlanCode);
+      if (payload.queueMode) formData.append('queueMode', payload.queueMode);
+      if (payload.queueThreshold !== undefined) formData.append('queueThreshold', String(payload.queueThreshold));
+      if (payload.bannerFile) formData.append('banner', payload.bannerFile);
+      if (payload.seatMapFile) formData.append('seatingChart', payload.seatMapFile);
+      body = formData;
+    } else {
+      body = JSON.stringify({
         ...payload,
         status: toApiEventStatus(payload.status),
-      }),
+      });
+    }
+
+    return request<{ event: ApiEvent }>('/api/admin/events', {
+      method: 'POST',
+      body,
     });
   },
   async createZone(eventId: number, payload: {
@@ -357,15 +383,39 @@ export const apiClient = {
     seatPlan?: string | null;
     seatPlanCode?: string | null;
     seatMapImageUrl?: string | null;
+    bannerFile?: File;
+    seatMapFile?: File;
     queueMode?: 'AUTO' | 'MANUAL' | 'OFF';
     queueThreshold?: number;
   }) {
-    return request<{ event: ApiEvent }>(`/api/admin/events/${eventId}`, {
-      method: 'PUT',
-      body: JSON.stringify({
+    let body: BodyInit;
+    if (payload.bannerFile || payload.seatMapFile) {
+      const formData = new FormData();
+      if (payload.title) formData.append('title', payload.title);
+      if (payload.description) formData.append('description', payload.description);
+      if (payload.location) formData.append('location', payload.location);
+      if (payload.startTime) formData.append('startTime', payload.startTime);
+      if (payload.endTime) formData.append('endTime', payload.endTime);
+      if (payload.saleStartTime) formData.append('saleStartTime', payload.saleStartTime);
+      if (payload.saleEndTime) formData.append('saleEndTime', payload.saleEndTime);
+      if (payload.status) formData.append('status', toApiEventStatus(payload.status));
+      if (payload.seatPlan) formData.append('seatPlan', payload.seatPlan);
+      if (payload.seatPlanCode) formData.append('seatPlanCode', payload.seatPlanCode);
+      if (payload.queueMode) formData.append('queueMode', payload.queueMode);
+      if (payload.queueThreshold !== undefined) formData.append('queueThreshold', String(payload.queueThreshold));
+      if (payload.bannerFile) formData.append('banner', payload.bannerFile);
+      if (payload.seatMapFile) formData.append('seatingChart', payload.seatMapFile);
+      body = formData;
+    } else {
+      body = JSON.stringify({
         ...payload,
         status: payload.status ? toApiEventStatus(payload.status) : undefined,
-      }),
+      });
+    }
+
+    return request<{ event: ApiEvent }>(`/api/admin/events/${eventId}`, {
+      method: 'PUT',
+      body,
     });
   },
   async deleteEvent(eventId: number) {

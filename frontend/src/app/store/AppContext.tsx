@@ -716,6 +716,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         seatPlan: event.seat_plan,
         seatPlanCode: event.seat_plan,
         seatMapImageUrl: localSeatMap ? null : event.seat_map_image_url ?? null,
+        bannerFile: event.banner_file,
+        seatMapFile: event.seat_map_file,
         // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
         queueMode: QUEUE_FEATURE_ENABLED ? 'AUTO' : 'OFF',
         queueThreshold: QUEUE_FEATURE_ENABLED ? AUTO_QUEUE_THRESHOLD : undefined,
@@ -807,10 +809,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         saleStartTime: data.sale_start_time,
         saleEndTime: data.sale_end_time,
         status: data.status,
-        bannerUrl: localBanner ? undefined : data.banner_url,
+        bannerUrl: localBanner ? null : data.banner_url,
+        bannerFile: data.banner_file,
         seatPlan: data.seat_plan,
         seatPlanCode: data.seat_plan,
-        seatMapImageUrl: localSeatMap ? undefined : data.seat_map_image_url ?? null,
+        seatMapImageUrl: localSeatMap ? null : data.seat_map_image_url ?? null,
+        seatMapFile: data.seat_map_file,
         // Queue code is temporarily disabled by QUEUE_FEATURE_ENABLED.
         queueMode: data.seat_plan ? (QUEUE_FEATURE_ENABLED ? 'AUTO' : 'OFF') : undefined,
         queueThreshold: data.seat_plan && QUEUE_FEATURE_ENABLED ? AUTO_QUEUE_THRESHOLD : undefined,
