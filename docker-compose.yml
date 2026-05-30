@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  # MySQL 8 Database Service
+  ticketrush-db:
+    image: mysql:8
+    container_name: ticketrush-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_change_me
+      MYSQL_DATABASE: ticket_rush
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ticketrush-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ExpressJS Backend Service
+  ticketrush-backend:
+    build:
+      context: ./TicketRush-BE/backend
+      dockerfile: Dockerfile
+    container_name: ticketrush-backend
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DB_HOST=ticketrush-db
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=root_password_change_me
+      - DB_NAME=ticket_rush
+      - DB_CONNECTION_LIMIT=20
+      - JWT_SECRET=change-this-secret-in-production-12345
+      - JWT_EXPIRES_IN=7d
+      - LOCK_DURATION_MINUTES=10
+      - QUEUE_ENABLED=false
+      - ADMIN_FULL_NAME=TicketRush Admin
+      - ADMIN_EMAIL=admin@ticketrush.local
+      - ADMIN_PASSWORD=Admin@123456
+    ports:
+      - "4000:4000"
+    volumes:
+      - uploads_data:/usr/src/app/uploads
+    networks:
+      - ticketrush-network
+    depends_on:
+      ticketrush-db:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for database connection...' &&
+        echo 'Running database migrations...' &&
+        npm run db:migrate &&
+        echo 'Seeding admin account...' &&
+        npm run seed:admin &&
+        echo 'Starting Express server...' &&
+        npm start
+      "
+
+  # React Frontend (Nginx Static + Proxy Gateway)
+  ticketrush-frontend:
+    build:
+      context: ./TicketRush-FE/frontend
+      dockerfile: Dockerfile
+    container_name: ticketrush-frontend
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - ticketrush-network
+    depends_on:
+      - ticketrush-backend
+
+  # Prometheus Service for scraping and storing metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ticketrush-prometheus
+    restart: always
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ticketrush-network
+    depends_on:
+      - ticketrush-backend
+
+  # Grafana Service for dashboard visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ticketrush-grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Default password for training/demo (username is 'admin')
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - ticketrush-network
+    depends_on:
+      - prometheus
+
+volumes:
+  mysql_data:
+  uploads_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  ticketrush-network:
+    driver: bridge
+

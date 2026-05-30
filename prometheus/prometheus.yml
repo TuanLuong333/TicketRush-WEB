@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s # Scrape metrics every 5 seconds for responsive, near-real-time dashboards
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'ticketrush-backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['ticketrush-backend:4000']
